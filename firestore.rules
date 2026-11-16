@@ -1,0 +1,239 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'mohmabdo1995@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserPreferences(prefs) {
+      return prefs is map &&
+        prefs.keys().hasAll(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects']) &&
+        prefs.keys().hasOnly(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects']) &&
+        (prefs.theme == 'light' || prefs.theme == 'dark') &&
+        prefs.notificationsEnabled is bool &&
+        prefs.soundEnabled is bool &&
+        (prefs.defaultScheduleView == 'calendar' || prefs.defaultScheduleView == 'list') &&
+        prefs.pomodoroWorkMinutes is int && prefs.pomodoroWorkMinutes >= 1 && prefs.pomodoroWorkMinutes <= 120 &&
+        prefs.pomodoroBreakMinutes is int && prefs.pomodoroBreakMinutes >= 1 && prefs.pomodoroBreakMinutes <= 60 &&
+        prefs.favoriteSubjects is list && prefs.favoriteSubjects.size() <= 20 &&
+        (prefs.favoriteSubjects.size() == 0 || prefs.favoriteSubjects[0] is string);
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'preferences', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'college', 'academicYear', 'preferences', 'createdAt', 'updatedAt']) &&
+        data.uid == userId &&
+        data.uid == request.auth.uid &&
+        isValidString(data.email, 3, 254) &&
+        isValidString(data.displayName, 1, 120) &&
+        (!('photoURL' in data) || isValidString(data.photoURL, 0, 1000)) &&
+        (!('college' in data) || isValidString(data.college, 0, 150)) &&
+        (!('academicYear' in data) || isValidString(data.academicYear, 0, 80)) &&
+        isValidUserPreferences(data.preferences) &&
+        isValidString(data.createdAt, 1, 50) &&
+        isValidString(data.updatedAt, 1, 50);
+    }
+
+    function isValidLecture(data, userId, lectureId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'subject', 'date', 'time', 'dayOfWeek', 'priority', 'completed', 'notificationEnabled', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'title', 'subject', 'professor', 'hall', 'date', 'time', 'dayOfWeek', 'notes', 'priority', 'completed', 'notificationEnabled', 'createdAt']) &&
+        isValidId(data.id) &&
+        data.id == lectureId &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        isValidString(data.title, 1, 200) &&
+        isValidString(data.subject, 1, 100) &&
+        (!('professor' in data) || isValidString(data.professor, 0, 150)) &&
+        (!('hall' in data) || isValidString(data.hall, 0, 150)) &&
+        isValidString(data.date, 8, 20) &&
+        isValidString(data.time, 4, 10) &&
+        isValidString(data.dayOfWeek, 2, 30) &&
+        (!('notes' in data) || isValidString(data.notes, 0, 1000)) &&
+        (data.priority == 'high' || data.priority == 'medium' || data.priority == 'low') &&
+        data.completed is bool &&
+        data.notificationEnabled is bool &&
+        data.createdAt is number;
+    }
+
+    function isValidGpaCourse(data, userId, courseId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'credits', 'gradePoint', 'gradeLetter']) &&
+        data.keys().hasOnly(['id', 'userId', 'name', 'credits', 'gradePoint', 'gradeLetter']) &&
+        isValidId(data.id) &&
+        data.id == courseId &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        isValidString(data.name, 1, 150) &&
+        data.credits is number && data.credits >= 1 && data.credits <= 12 &&
+        data.gradePoint is number && data.gradePoint >= 0 && data.gradePoint <= 5 &&
+        isValidString(data.gradeLetter, 1, 10);
+    }
+
+    // --- Private User Account Data (Strict Owner Isolation & PII Protection) ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if false;
+      allow create: if isValidId(userId) && isOwner(userId) && isVerifiedUser() &&
+        isValidUserProfile(incoming(), userId);
+      allow update: if isValidId(userId) && isOwner(userId) && isVerifiedUser() &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'college', 'academicYear', 'preferences', 'updatedAt']);
+      allow delete: if isValidId(userId) && isOwner(userId) && isVerifiedUser();
+
+      // User Personal Lecture Schedules
+      match /lectures/{lectureId} {
+        allow get: if isValidId(userId) && isValidId(lectureId) && (isOwner(userId) || isAdmin());
+        allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
+        allow create: if isValidId(userId) && isValidId(lectureId) && isOwner(userId) && isVerifiedUser() &&
+          isValidLecture(incoming(), userId, lectureId);
+        allow update: if isValidId(userId) && isValidId(lectureId) && isOwner(userId) && isVerifiedUser() &&
+          isValidLecture(incoming(), userId, lectureId) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subject', 'professor', 'hall', 'date', 'time', 'dayOfWeek', 'notes', 'priority', 'completed', 'notificationEnabled']);
+        allow delete: if isValidId(userId) && isValidId(lectureId) && isOwner(userId) && isVerifiedUser();
+      }
+
+      // User GPA Courses
+      match /gpa_courses/{courseId} {
+        allow get: if isValidId(userId) && isValidId(courseId) && (isOwner(userId) || isAdmin());
+        allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
+        allow create: if isValidId(userId) && isValidId(courseId) && isOwner(userId) && isVerifiedUser() &&
+          isValidGpaCourse(incoming(), userId, courseId);
+        allow update: if isValidId(userId) && isValidId(courseId) && isOwner(userId) && isVerifiedUser() &&
+          isValidGpaCourse(incoming(), userId, courseId) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'credits', 'gradePoint', 'gradeLetter']);
+        allow delete: if isValidId(userId) && isValidId(courseId) && isOwner(userId) && isVerifiedUser();
+      }
+    }
+
+    // --- Existing Public / Admin CMS Collections ---
+    match /site_config/{configId} {
+      allow read, write: if true;
+    }
+
+    match /articles/{articleId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.title, 2, 300) &&
+        request.resource.data.content is string
+      );
+      allow delete: if isAdmin() || articleId != 'permanent_system_article';
+    }
+
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.title, 2, 300) &&
+        request.resource.data.url is string
+      );
+      allow delete: if isAdmin() || videoId != 'permanent_system_video';
+    }
+
+    match /subjects_data/{subjectId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.nameAr, 2, 200)
+      );
+      allow delete: if isAdmin() || true;
+    }
+
+    match /announcements/{annId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.title, 2, 300)
+      );
+      allow delete: if true;
+    }
+
+    match /media/{mediaId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.name, 1, 300) &&
+        request.resource.data.url is string
+      );
+      allow delete: if true;
+    }
+
+    match /ticker_items/{tickerId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.text, 1, 1000) &&
+        (!('badge' in request.resource.data) || isValidString(request.resource.data.badge, 0, 40)) &&
+        (!('link' in request.resource.data) || isValidString(request.resource.data.link, 0, 500)) &&
+        (!('visible' in request.resource.data) || request.resource.data.visible is bool) &&
+        (!('order' in request.resource.data) || request.resource.data.order is number)
+      );
+      allow delete: if true;
+    }
+
+    match /drive_files/{fileId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.name, 1, 300) &&
+        request.resource.data.fileId is string
+      );
+      allow delete: if true;
+    }
+
+    match /study_resources/{resourceId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.title, 2, 300) &&
+        request.resource.data.description is string
+      );
+      allow delete: if true;
+    }
+
+    match /admin_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if request.resource.data.action is string &&
+                       request.resource.data.timestamp is string;
+      allow update, delete: if false;
+    }
+  }
+}

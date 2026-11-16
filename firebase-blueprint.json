@@ -1,0 +1,184 @@
+{
+  "entities": {
+    "site_config": {
+      "title": "Site Configuration",
+      "description": "Global website settings, text content, section visibility, and theme colors",
+      "properties": {
+        "heroTitle": { "type": "string", "description": "Hero section title" },
+        "heroSubtitle": { "type": "string", "description": "Hero section subtitle" },
+        "heroButtonText": { "type": "string", "description": "Hero button text" },
+        "heroButtonLink": { "type": "string", "description": "Hero button link" },
+        "telegramBotLink": { "type": "string", "description": "Telegram bot URL" },
+        "telegramBotName": { "type": "string", "description": "Telegram bot username" },
+        "footerText": { "type": "string", "description": "Footer copyright and overview text" },
+        "contactEmail": { "type": "string", "description": "Contact email" },
+        "contactPhone": { "type": "string", "description": "Contact phone number" },
+        "contactAddress": { "type": "string", "description": "College address" },
+        "siteLogoUrl": { "type": "string", "description": "Custom logo URL" },
+        "primaryColor": { "type": "string", "description": "Primary theme accent color" },
+        "seoTitle": { "type": "string", "description": "SEO page title" },
+        "seoDescription": { "type": "string", "description": "SEO meta description" },
+        "tickerSpeed": { "type": "string", "enum": ["slow", "normal", "fast"], "description": "News ticker animation speed" },
+        "tickerTitle": { "type": "string", "description": "News ticker live badge title" },
+        "tickerInitialized": { "type": "boolean", "description": "Whether default ticker items have been seeded once" },
+        "sectionVisibility": {
+          "type": "object",
+          "description": "ON/OFF visibility switches for website sections and components"
+        }
+      }
+    },
+    "subjects": {
+      "title": "Academic Subjects",
+      "description": "List of college courses and academic subjects",
+      "properties": {
+        "nameAr": { "type": "string", "description": "Arabic subject name" },
+        "nameEn": { "type": "string", "description": "English subject name" },
+        "code": { "type": "string", "description": "Subject course code" },
+        "credits": { "type": "number", "description": "Credit hours" },
+        "description": { "type": "string", "description": "Short description" },
+        "image": { "type": "string", "description": "Image URL" },
+        "visible": { "type": "boolean", "description": "ON/OFF visibility switch" }
+      }
+    },
+    "announcements": {
+      "title": "Announcements & Ads",
+      "description": "Website news, announcements and advertisement banners",
+      "properties": {
+        "title": { "type": "string", "description": "Announcement title" },
+        "content": { "type": "string", "description": "Announcement text content" },
+        "badge": { "type": "string", "description": "Badge label e.g. هام / جديد" },
+        "link": { "type": "string", "description": "External action link" },
+        "visible": { "type": "boolean", "description": "ON/OFF visibility switch" },
+        "createdAt": { "type": "string", "description": "Timestamp" }
+      }
+    },
+    "ticker_items": {
+      "title": "News Ticker Items",
+      "description": "Real-time breaking news and alert headlines shown in the top scrolling ticker bar",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000, "description": "Headline text" },
+        "badge": { "type": "string", "maxLength": 40, "description": "Optional badge label" },
+        "link": { "type": "string", "maxLength": 500, "description": "Optional external URL or internal section" },
+        "visible": { "type": "boolean", "description": "Visibility flag" },
+        "order": { "type": "number", "description": "Display order" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["text", "visible", "order"]
+    },
+    "media": {
+      "title": "Media Files & Assets",
+      "description": "Uploaded logos, images, PDFs, videos, and backgrounds",
+      "properties": {
+        "name": { "type": "string", "description": "Media item name" },
+        "url": { "type": "string", "description": "Direct file or image URL" },
+        "type": { "type": "string", "description": "image | pdf | video | logo" },
+        "size": { "type": "string", "description": "File size label" },
+        "visible": { "type": "boolean", "description": "ON/OFF visibility switch" },
+        "createdAt": { "type": "string", "description": "Timestamp" }
+      }
+    },
+    "admin_logs": {
+      "title": "Admin Action Logs",
+      "description": "History of admin edits and settings changes",
+      "properties": {
+        "action": { "type": "string", "description": "Action performed" },
+        "details": { "type": "string", "description": "Details of change" },
+        "timestamp": { "type": "string", "description": "ISO timestamp" }
+      }
+    },
+    "study_resources": {
+      "title": "Study Resources & Digital Library",
+      "description": "Dynamic digital library resources, study references, external books and materials",
+      "properties": {
+        "title": { "type": "string", "description": "Source title (Arabic/English)" },
+        "description": { "type": "string", "description": "Source description" },
+        "url": { "type": "string", "description": "Source destination external URL" },
+        "link": { "type": "string", "description": "Source URL link" },
+        "subjectId": { "type": "string", "description": "Associated subject identifier or general" },
+        "subjectTag": { "type": "string", "description": "Subject tag label" },
+        "category": { "type": "string", "description": "Category: book, video, telegram, notes, summary" },
+        "isActive": { "type": "boolean", "description": "Visibility flag" },
+        "order": { "type": "number", "description": "Display order" },
+        "createdAt": { "type": "string", "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
+      }
+    },
+    "users": {
+      "title": "User Accounts & Preferences",
+      "description": "Authenticated student profile, academic metadata, and personal app preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email", "maxLength": 254, "description": "Verified user email (PII)" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120, "description": "Student full name" },
+        "photoURL": { "type": "string", "maxLength": 1000, "description": "Profile avatar URL" },
+        "college": { "type": "string", "maxLength": 150, "description": "College or department name" },
+        "academicYear": { "type": "string", "maxLength": 80, "description": "Academic year or level" },
+        "preferences": { "type": "object", "description": "Theme, notifications, sound, schedule view, pomodoro, and favorite subjects" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["uid", "email", "displayName", "preferences", "createdAt", "updatedAt"]
+    },
+    "user_lectures": {
+      "title": "User Personal Lecture Schedule",
+      "description": "Private academic lecture schedule entries associated with an authenticated user account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Lecture identifier" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Owner Firebase Auth UID" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Lecture title" },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Academic subject" },
+        "professor": { "type": "string", "maxLength": 150, "description": "Lecturer name" },
+        "hall": { "type": "string", "maxLength": 150, "description": "Hall or room" },
+        "date": { "type": "string", "minLength": 8, "maxLength": 20, "description": "Date YYYY-MM-DD" },
+        "time": { "type": "string", "minLength": 4, "maxLength": 10, "description": "Time HH:MM" },
+        "dayOfWeek": { "type": "string", "minLength": 2, "maxLength": 30, "description": "Arabic day name" },
+        "notes": { "type": "string", "maxLength": 1000, "description": "Optional notes" },
+        "priority": { "type": "string", "enum": ["high", "medium", "low"], "description": "Priority level" },
+        "completed": { "type": "boolean", "description": "Completion state" },
+        "notificationEnabled": { "type": "boolean", "description": "Reminder toggle" },
+        "createdAt": { "type": "number", "description": "Epoch timestamp in milliseconds" }
+      },
+      "required": ["id", "userId", "title", "subject", "date", "time", "dayOfWeek", "priority", "completed", "notificationEnabled", "createdAt"]
+    },
+    "user_gpa_courses": {
+      "title": "User GPA Courses",
+      "description": "Saved GPA calculator courses associated with an authenticated user account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Course item identifier" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Owner Firebase Auth UID" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 150, "description": "Course name" },
+        "credits": { "type": "number", "description": "Credit hours" },
+        "gradePoint": { "type": "number", "description": "Grade point value" },
+        "gradeLetter": { "type": "string", "minLength": 1, "maxLength": 10, "description": "Grade letter e.g. A+" }
+      },
+      "required": ["id", "userId", "name", "credits", "gradePoint", "gradeLetter"]
+    }
+  },
+  "firestore": {
+    "/ticker_items/{tickerId}": {
+      "schema": "ticker_items",
+      "description": "Publicly readable, admin-managed real-time news ticker headlines"
+    },
+    "/study_resources/{resourceId}": {
+      "schema": "study_resources",
+      "description": "Collection of academic study sources and digital library cards"
+    },
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "Private user account profiles and preferences strictly isolated by UID"
+    },
+    "/users/{userId}/lectures/{lectureId}": {
+      "schema": "user_lectures",
+      "description": "Private user lecture schedules scoped to each authenticated student"
+    },
+    "/users/{userId}/gpa_courses/{courseId}": {
+      "schema": "user_gpa_courses",
+      "description": "Private user GPA calculator course entries scoped to each authenticated student"
+    }
+  }
+}
