@@ -15,7 +15,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <div className="md:col-span-2 space-y-3">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-white border border-[#16958E]/30 flex items-center justify-center p-0.5 shadow-md overflow-hidden">
-                <img src="/icon.svg" alt="دليلك الجامعي" className="w-full h-full object-contain" />
+                <img src="/assets/aistudio/______________42663aaf.svg" alt="دليلك الجامعي" className="w-full h-full object-contain" />
               </div>
               <h3 className="text-xl font-bold font-tajawal text-[#071A3D] dark:text-white">دليلك الجامعي</h3>
             </div>

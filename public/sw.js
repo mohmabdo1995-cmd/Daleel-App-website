@@ -1,5 +1,5 @@
 // Daleelak AlJamaei (دليلك الجامعي) - High-Reliability PWA Service Worker
-const CACHE_VERSION = 'v2.4.0';
+const CACHE_VERSION = 'v2.5.0';
 const STATIC_CACHE_NAME = `daleelak-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE_NAME = `daleelak-dynamic-${CACHE_VERSION}`;
 const FONT_CACHE_NAME = `daleelak-fonts-${CACHE_VERSION}`;
@@ -9,6 +9,7 @@ const PRECACHE_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/assets/aistudio/______________42663aaf.svg',
   '/icon.svg',
   '/favicon.png',
   '/apple-touch-icon.png',

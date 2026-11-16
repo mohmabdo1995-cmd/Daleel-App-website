@@ -190,6 +190,26 @@ export const UserProfileModal: React.FC = () => {
           </button>
         </div>
 
+        {/* Admin Dashboard Quick Access (strictly visible to authorized owner email only) */}
+        {userProfile.email?.toLowerCase() === 'mohmabdo1995@gmail.com' && (
+          <button
+            type="button"
+            onClick={() => {
+              closeProfileModal();
+              window.location.hash = '#admin';
+            }}
+            className="w-full p-3.5 rounded-2xl bg-[#071A3D] hover:bg-[#0E2F5A] text-white border border-[#16958E]/50 flex items-center justify-between gap-3 shadow-md transition-all cursor-pointer"
+          >
+            <span className="flex items-center gap-2.5 text-xs sm:text-sm font-bold font-tajawal">
+              <ShieldCheck className="w-5 h-5 text-[#16958E]" />
+              <span>الدخول إلى لوحة تحكم الأدمن (إدارة الموقع والأخبار)</span>
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-[#16958E] text-white text-[11px] font-bold">
+              فتح اللوحة
+            </span>
+          </button>
+        )}
+
         {/* Synced Account Stats */}
         <div className="grid grid-cols-2 gap-3">
           <div className="p-3.5 rounded-2xl bg-[#BCEBFF]/15 dark:bg-white/5 border border-[#BCEBFF]/50 dark:border-[#16958E]/25 flex items-center gap-3">
