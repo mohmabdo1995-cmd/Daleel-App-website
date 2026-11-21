@@ -49,6 +49,7 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
   const [isModalOpen, setIsModalOpen] = useState(openAddModalInitially);
   const [editingLecture, setEditingLecture] = useState<Lecture | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   // Notification Permission State
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>(
@@ -119,53 +120,68 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
   const handleSaveLecture = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) return;
+    setScheduleError(null);
 
-    if (editingLecture) {
-      const updated: Lecture = {
-        ...editingLecture,
-        title: formTitle.trim(),
-        subject: formSubject,
-        professor: formProfessor.trim(),
-        hall: formHall.trim(),
-        date: formDate,
-        time: formTime,
-        dayOfWeek: formDayOfWeek,
-        notes: formNotes.trim(),
-        priority: formPriority,
-        notificationEnabled: formNotifEnabled
-      };
-      await updateLecture(updated);
-    } else {
-      await addLecture({
-        title: formTitle.trim(),
-        subject: formSubject,
-        professor: formProfessor.trim(),
-        hall: formHall.trim(),
-        date: formDate,
-        time: formTime,
-        dayOfWeek: formDayOfWeek,
-        notes: formNotes.trim(),
-        priority: formPriority,
-        completed: false,
-        notificationEnabled: formNotifEnabled
-      });
+    try {
+      if (editingLecture) {
+        const updated: Lecture = {
+          ...editingLecture,
+          title: formTitle.trim(),
+          subject: formSubject,
+          professor: formProfessor.trim(),
+          hall: formHall.trim(),
+          date: formDate,
+          time: formTime,
+          dayOfWeek: formDayOfWeek,
+          notes: formNotes.trim(),
+          priority: formPriority,
+          notificationEnabled: formNotifEnabled
+        };
+        await updateLecture(updated);
+      } else {
+        await addLecture({
+          title: formTitle.trim(),
+          subject: formSubject,
+          professor: formProfessor.trim(),
+          hall: formHall.trim(),
+          date: formDate,
+          time: formTime,
+          dayOfWeek: formDayOfWeek,
+          notes: formNotes.trim(),
+          priority: formPriority,
+          completed: false,
+          notificationEnabled: formNotifEnabled
+        });
+      }
+
+      onLecturesUpdated?.();
+      setIsModalOpen(false);
+      resetForm();
+      confetti({ particleCount: 40, spread: 50 });
+    } catch {
+      setScheduleError('تعذر حفظ المحاضرة في السحابة حالياً. يرجى التحقق من اتصال الإنترنت والمحاولة مرة أخرى.');
     }
-
-    onLecturesUpdated?.();
-    setIsModalOpen(false);
-    resetForm();
-    confetti({ particleCount: 40, spread: 50 });
   };
 
   const handleDeleteLecture = async (id: string) => {
-    await deleteLecture(id);
-    setConfirmDeleteId(null);
-    onLecturesUpdated?.();
+    setScheduleError(null);
+    try {
+      await deleteLecture(id);
+      setConfirmDeleteId(null);
+      onLecturesUpdated?.();
+    } catch {
+      setScheduleError('تعذر حذف المحاضرة حالياً. يرجى المحاولة مرة أخرى.');
+    }
   };
 
   const handleToggleCompleted = async (id: string) => {
-    await toggleLectureCompleted(id);
-    onLecturesUpdated?.();
+    setScheduleError(null);
+    try {
+      await toggleLectureCompleted(id);
+      onLecturesUpdated?.();
+    } catch {
+      setScheduleError('تعذر تحديث حالة المحاضرة حالياً.');
+    }
   };
 
   const handleTestNotification = (lec: Lecture) => {
@@ -456,6 +472,19 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
           </button>
         )}
       </div>
+
+      {scheduleError && (
+        <div className="mb-6 p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center justify-between gap-3">
+          <span>{scheduleError}</span>
+          <button
+            type="button"
+            onClick={() => setScheduleError(null)}
+            className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/60 text-[11px] cursor-pointer"
+          >
+            إغلاق
+          </button>
+        </div>
+      )}
 
       {/* View Switcher: Monthly Calendar View vs List View */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8 pb-4 border-b border-[#BCEBFF]/50 dark:border-[#16958E]/20">

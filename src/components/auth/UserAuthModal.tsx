@@ -49,9 +49,13 @@ export const UserAuthModal: React.FC = () => {
   const [defaultView, setDefaultView] = useState<'calendar' | 'list'>('calendar');
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [savingOnboarding, setSavingOnboarding] = useState(false);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   useEffect(() => {
     setActiveTab(authModalMode);
+    setOnboardingError(null);
+    setCopiedUrl(false);
   }, [authModalMode, isAuthModalOpen]);
 
   useEffect(() => {
@@ -73,9 +77,20 @@ export const UserAuthModal: React.FC = () => {
     await signInWithGoogle();
   };
 
+  const handleCopyCurrentUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 2500);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
   const handleSaveOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingOnboarding(true);
+    setOnboardingError(null);
     try {
       await updateProfile({
         displayName: displayName.trim() || userProfile?.displayName,
@@ -87,6 +102,8 @@ export const UserAuthModal: React.FC = () => {
         notificationsEnabled: notifEnabled,
       });
       completeOnboarding();
+    } catch {
+      setOnboardingError('تعذر حفظ البيانات حالياً في السحابة. يمكنك المتابعة وإعادة الحفظ لاحقاً من حسابك.');
     } finally {
       setSavingOnboarding(false);
     }
@@ -222,6 +239,13 @@ export const UserAuthModal: React.FC = () => {
             />
           </label>
 
+          {onboardingError && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{onboardingError}</span>
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-2.5 pt-2">
             <button
               type="button"
@@ -313,9 +337,20 @@ export const UserAuthModal: React.FC = () => {
 
           {/* Error Feedback */}
           {authError && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{authError}</span>
+            <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs space-y-2">
+              <div className="flex items-start gap-2 leading-relaxed">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{authError}</span>
+              </div>
+              {(authError.includes('المنبثقة') || authError.includes('المدمجة')) && (
+                <button
+                  type="button"
+                  onClick={handleCopyCurrentUrl}
+                  className="px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/50 text-rose-800 dark:text-rose-100 text-[11px] font-bold transition-colors cursor-pointer"
+                >
+                  {copiedUrl ? 'تم نسخ رابط الموقع ✓' : 'نسخ رابط الموقع لفتحه في المتصفح'}
+                </button>
+              )}
             </div>
           )}
 

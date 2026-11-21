@@ -1,5 +1,5 @@
 // Daleelak AlJamaei (دليلك الجامعي) - High-Reliability PWA Service Worker
-const CACHE_VERSION = 'v2.5.0';
+const CACHE_VERSION = 'v2.6.0';
 const STATIC_CACHE_NAME = `daleelak-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE_NAME = `daleelak-dynamic-${CACHE_VERSION}`;
 const FONT_CACHE_NAME = `daleelak-fonts-${CACHE_VERSION}`;
@@ -63,14 +63,20 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
-  // 1. Bypass non-GET, non-HTTP, WebSocket, and Firebase backend API calls
+  // 1. Bypass non-GET, non-HTTP, WebSocket, Firebase Auth & Google OAuth endpoints completely
   if (
     request.method !== 'GET' ||
     !url.protocol.startsWith('http') ||
     request.headers.get('upgrade') === 'websocket' ||
+    url.pathname.startsWith('/__/') ||
+    url.searchParams.has('code') ||
+    url.searchParams.has('state') ||
     url.hostname.includes('firestore.googleapis.com') ||
     url.hostname.includes('identitytoolkit.googleapis.com') ||
-    url.hostname.includes('securetoken.googleapis.com')
+    url.hostname.includes('securetoken.googleapis.com') ||
+    url.hostname.includes('accounts.google.com') ||
+    url.hostname.includes('apis.google.com') ||
+    url.hostname.endsWith('.firebaseapp.com')
   ) {
     return;
   }

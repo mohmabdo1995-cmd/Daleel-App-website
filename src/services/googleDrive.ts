@@ -122,7 +122,9 @@ export class GoogleDriveService {
    */
   static async disconnect(): Promise<void> {
     try {
-      await auth.signOut();
+      if (auth.currentUser?.isAnonymous) {
+        await auth.signOut();
+      }
     } finally {
       cachedAccessToken = null;
       cachedFolderId = null;

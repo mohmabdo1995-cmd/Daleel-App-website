@@ -105,6 +105,20 @@
         "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
       }
     },
+    "college_info": {
+      "title": "College Overview Information",
+      "description": "About college overview, credit system guide, survival tips, and custom informational sections",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "College title" },
+        "tagline": { "type": "string", "maxLength": 300, "description": "Short tagline" },
+        "image": { "type": "string", "maxLength": 1000, "description": "College banner image URL" },
+        "overview": { "type": "string", "maxLength": 5000, "description": "Overview text" },
+        "creditSystem": { "type": "string", "maxLength": 5000, "description": "Credit system explanation" },
+        "survivalTips": { "type": "array", "description": "Student survival tips list" },
+        "customSections": { "type": "array", "description": "Additional custom sections" }
+      }
+    },
     "users": {
       "title": "User Accounts & Preferences",
       "description": "Authenticated student profile, academic metadata, and personal app preferences",
@@ -116,9 +130,11 @@
         "photoURL": { "type": "string", "maxLength": 1000, "description": "Profile avatar URL" },
         "college": { "type": "string", "maxLength": 150, "description": "College or department name" },
         "academicYear": { "type": "string", "maxLength": 80, "description": "Academic year or level" },
-        "preferences": { "type": "object", "description": "Theme, notifications, sound, schedule view, pomodoro, and favorite subjects" },
+        "authProvider": { "type": "string", "maxLength": 60, "description": "Authentication provider identifier e.g. google.com" },
+        "preferences": { "type": "object", "description": "Theme, notifications, sound, schedule view, pomodoro, favoriteSubjects, and savedResourceIds" },
         "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
-        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" },
+        "lastLoginAt": { "type": "string", "maxLength": 50, "description": "Most recent authenticated session ISO timestamp" }
       },
       "required": ["uid", "email", "displayName", "preferences", "createdAt", "updatedAt"]
     },
@@ -157,9 +173,44 @@
         "gradeLetter": { "type": "string", "minLength": 1, "maxLength": 10, "description": "Grade letter e.g. A+" }
       },
       "required": ["id", "userId", "name", "credits", "gradePoint", "gradeLetter"]
+    },
+    "user_personal_resources": {
+      "title": "User Personal Study Resources",
+      "description": "Private student-added external study links and references scoped to an authenticated user account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Personal resource identifier" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Owner Firebase Auth UID" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Resource title" },
+        "description": { "type": "string", "maxLength": 1000, "description": "Optional notes or summary" },
+        "url": { "type": "string", "minLength": 8, "maxLength": 1000, "pattern": "^https?://", "description": "Validated HTTP/HTTPS external URL" },
+        "subjectTag": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Associated subject ID or general" },
+        "category": { "type": "string", "enum": ["book", "video", "telegram", "notes", "summary"], "description": "Resource category" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "userId", "title", "url", "subjectTag", "category", "createdAt", "updatedAt"]
+    },
+    "user_subject_progress": {
+      "title": "User Subject Study Progress & Personal Notes",
+      "description": "Per-subject study checklist completion and personal student notes synced per authenticated user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Sanitized subject document ID" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Owner Firebase Auth UID" },
+        "subjectId": { "type": "string", "minLength": 1, "maxLength": 100, "description": "Academic subject identifier" },
+        "notes": { "type": "string", "maxLength": 4000, "description": "Personal study notes for the subject" },
+        "completedTopicIds": { "type": "array", "description": "Completed topic identifiers list (max 100 items)" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "userId", "subjectId", "notes", "completedTopicIds", "updatedAt"]
     }
   },
   "firestore": {
+    "/college_info/{infoId}": {
+      "schema": "college_info",
+      "description": "Publicly readable, admin-managed college overview and tips"
+    },
     "/ticker_items/{tickerId}": {
       "schema": "ticker_items",
       "description": "Publicly readable, admin-managed real-time news ticker headlines"
@@ -179,6 +230,14 @@
     "/users/{userId}/gpa_courses/{courseId}": {
       "schema": "user_gpa_courses",
       "description": "Private user GPA calculator course entries scoped to each authenticated student"
+    },
+    "/users/{userId}/personal_resources/{resourceId}": {
+      "schema": "user_personal_resources",
+      "description": "Private student-added external study references scoped to each authenticated student"
+    },
+    "/users/{userId}/subject_progress/{subjectId}": {
+      "schema": "user_subject_progress",
+      "description": "Private per-subject study notes and topic progress scoped to each authenticated student"
     }
   }
 }

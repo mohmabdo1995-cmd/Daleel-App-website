@@ -22,7 +22,13 @@ import firebaseConfig from '../../firebase-applet-config.json';
 import { Subject, Lecture, StudyResource, ArticleItem, VideoItem, CollegeInfoData, TickerItem } from '../types';
 import { COLLEGE_INFO, SUBJECTS_DATA, DEFAULT_ARTICLES, DEFAULT_VIDEOS, STUDY_RESOURCES } from '../data/academicContent';
 
-import { getAuth } from 'firebase/auth';
+import {
+  getAuth,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  inMemoryPersistence,
+} from 'firebase/auth';
 
 // Silence verbose connection notices
 setLogLevel('error');
@@ -38,6 +44,20 @@ export const db = initializeFirestore(
   FIRESTORE_DATABASE_ID
 );
 export const auth = getAuth(app);
+auth.languageCode = 'ar';
+
+export const authPersistenceReady: Promise<void> = (async () => {
+  if (typeof window === 'undefined') return;
+  const levels = [browserLocalPersistence, browserSessionPersistence, inMemoryPersistence];
+  for (const persistence of levels) {
+    try {
+      await setPersistence(auth, persistence);
+      return;
+    } catch {
+      // Try next fallback persistence mechanism when storage/IndexedDB is restricted
+    }
+  }
+})();
 
 export enum OperationType {
   CREATE = 'create',

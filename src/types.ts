@@ -100,6 +100,27 @@ export interface StudyResource {
   updatedAt?: string;
 }
 
+export interface PersonalStudyResource {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  url: string;
+  subjectTag: string;
+  category: 'book' | 'video' | 'telegram' | 'notes' | 'summary';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectStudyProgress {
+  id: string; // sanitized subjectId
+  userId: string;
+  subjectId: string;
+  notes: string;
+  completedTopicIds: string[];
+  updatedAt: string;
+}
+
 export interface GpaCourse {
   id: string;
   userId?: string;
@@ -117,6 +138,7 @@ export interface UserPreferences {
   pomodoroWorkMinutes: number;
   pomodoroBreakMinutes: number;
   favoriteSubjects: string[];
+  savedResourceIds: string[];
 }
 
 export interface UserProfile {
@@ -126,9 +148,11 @@ export interface UserProfile {
   photoURL?: string;
   college?: string;
   academicYear?: string;
+  authProvider?: string;
   preferences: UserPreferences;
   createdAt: string;
   updatedAt: string;
+  lastLoginAt?: string;
 }
 
 export interface UserSettings {

@@ -4,6 +4,7 @@ import {
   Sliders,
   LogOut,
   CheckCircle2,
+  AlertCircle,
   Sun,
   Moon,
   Bell,
@@ -49,6 +50,7 @@ export const UserProfileModal: React.FC = () => {
     preferences,
     lectures,
     gpaCourses,
+    personalResources,
     updateProfile,
     updatePreferences,
     logout,
@@ -66,6 +68,7 @@ export const UserProfileModal: React.FC = () => {
 
   const [saving, setSaving] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
@@ -75,6 +78,7 @@ export const UserProfileModal: React.FC = () => {
       setAcademicYear(userProfile.academicYear || '');
       setDraftPrefs(preferences);
       setSaveSuccessMsg(null);
+      setSaveErrorMsg(null);
     }
   }, [isProfileModalOpen, userProfile, preferences]);
 
@@ -92,6 +96,7 @@ export const UserProfileModal: React.FC = () => {
     if (!displayName.trim()) return;
     setSaving(true);
     setSaveSuccessMsg(null);
+    setSaveErrorMsg(null);
     try {
       await updateProfile({
         displayName: displayName.trim(),
@@ -99,6 +104,8 @@ export const UserProfileModal: React.FC = () => {
         academicYear: academicYear.trim(),
       });
       setSaveSuccessMsg('تم حفظ بيانات الملف الشخصي في حسابك بنجاح.');
+    } catch {
+      setSaveErrorMsg('تعذر حفظ البيانات السحابية. يرجى التحقق من الاتصال والمحاولة مرة أخرى.');
     } finally {
       setSaving(false);
     }
@@ -108,9 +115,12 @@ export const UserProfileModal: React.FC = () => {
     e.preventDefault();
     setSaving(true);
     setSaveSuccessMsg(null);
+    setSaveErrorMsg(null);
     try {
       await updatePreferences(draftPrefs);
       setSaveSuccessMsg('تم حفظ تفضيلاتك وإعداداتك في السحابة بنجاح.');
+    } catch {
+      setSaveErrorMsg('تعذر حفظ التفضيلات السحابية. يرجى المحاولة مرة أخرى.');
     } finally {
       setSaving(false);
     }
@@ -128,8 +138,11 @@ export const UserProfileModal: React.FC = () => {
 
   const handleLogout = async () => {
     setLoggingOut(true);
+    setSaveErrorMsg(null);
     try {
       await logout();
+    } catch {
+      setSaveErrorMsg('حدث خطأ أثناء تسجيل الخروج. حاول مرة أخرى.');
     } finally {
       setLoggingOut(false);
     }
@@ -211,27 +224,39 @@ export const UserProfileModal: React.FC = () => {
         )}
 
         {/* Synced Account Stats */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3.5 rounded-2xl bg-[#BCEBFF]/15 dark:bg-white/5 border border-[#BCEBFF]/50 dark:border-[#16958E]/25 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#16958E]/15 text-[#16958E] flex items-center justify-center">
-              <CalendarCheck className="w-5 h-5" />
+        <div className="grid grid-cols-3 gap-2.5">
+          <div className="p-3 rounded-2xl bg-[#BCEBFF]/15 dark:bg-white/5 border border-[#BCEBFF]/50 dark:border-[#16958E]/25 flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#16958E]/15 text-[#16958E] flex items-center justify-center flex-shrink-0">
+              <CalendarCheck className="w-4 h-4" />
             </div>
-            <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">المحاضرات المحفوظة</p>
-              <p className="text-lg font-extrabold font-mono text-[#071A3D] dark:text-white">
+            <div className="min-w-0">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate">المحاضرات</p>
+              <p className="text-base font-extrabold font-mono text-[#071A3D] dark:text-white">
                 {lectures.length}
               </p>
             </div>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-[#BCEBFF]/15 dark:bg-white/5 border border-[#BCEBFF]/50 dark:border-[#16958E]/25 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#071A3D]/10 dark:bg-[#16958E]/20 text-[#071A3D] dark:text-[#BCEBFF] flex items-center justify-center">
-              <Calculator className="w-5 h-5" />
+          <div className="p-3 rounded-2xl bg-[#BCEBFF]/15 dark:bg-white/5 border border-[#BCEBFF]/50 dark:border-[#16958E]/25 flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#071A3D]/10 dark:bg-[#16958E]/20 text-[#071A3D] dark:text-[#BCEBFF] flex items-center justify-center flex-shrink-0">
+              <Calculator className="w-4 h-4" />
             </div>
-            <div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 font-bold">مقررات المعدل GPA</p>
-              <p className="text-lg font-extrabold font-mono text-[#071A3D] dark:text-white">
+            <div className="min-w-0">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate">مقررات GPA</p>
+              <p className="text-base font-extrabold font-mono text-[#071A3D] dark:text-white">
                 {gpaCourses.length}
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-[#BCEBFF]/15 dark:bg-white/5 border border-[#BCEBFF]/50 dark:border-[#16958E]/25 flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-[#16958E]/15 text-[#16958E] flex items-center justify-center flex-shrink-0">
+              <Bookmark className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate">مصادري</p>
+              <p className="text-base font-extrabold font-mono text-[#071A3D] dark:text-white">
+                {personalResources.length + (preferences.savedResourceIds?.length || 0)}
               </p>
             </div>
           </div>
@@ -243,6 +268,7 @@ export const UserProfileModal: React.FC = () => {
             type="button"
             onClick={() => {
               setSaveSuccessMsg(null);
+              setSaveErrorMsg(null);
               setActiveTab('profile');
             }}
             className={`py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
@@ -259,6 +285,7 @@ export const UserProfileModal: React.FC = () => {
             type="button"
             onClick={() => {
               setSaveSuccessMsg(null);
+              setSaveErrorMsg(null);
               setActiveTab('preferences');
             }}
             className={`py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
@@ -276,6 +303,13 @@ export const UserProfileModal: React.FC = () => {
           <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-200 text-xs font-bold flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
             <span>{saveSuccessMsg}</span>
+          </div>
+        )}
+
+        {saveErrorMsg && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs font-bold flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{saveErrorMsg}</span>
           </div>
         )}
 

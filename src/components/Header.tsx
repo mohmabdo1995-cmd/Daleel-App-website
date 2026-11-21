@@ -19,7 +19,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAddLecture
 }) => {
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
-  const { isAuthenticated, userProfile, openAuthModal, openProfileModal } = useAuth();
+  const { isAuthenticated, authLoading, userProfile, openAuthModal, openProfileModal } = useAuth();
 
   const firstName = userProfile?.displayName?.split(/\s+/)[0] || 'حسابي';
 
@@ -112,7 +112,15 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {/* User Account / Login Button */}
-            {isAuthenticated && userProfile ? (
+            {authLoading ? (
+              <div
+                aria-label="جاري التحقق من الجلسة"
+                className="h-9 sm:h-10 px-3 rounded-xl bg-[#071A3D]/80 text-white border border-[#16958E]/30 text-xs font-bold flex items-center justify-center gap-1.5"
+              >
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-[#BCEBFF] border-t-transparent animate-spin" />
+                <span className="hidden sm:inline text-[11px]">جاري التحقق...</span>
+              </div>
+            ) : isAuthenticated && userProfile ? (
               <button
                 onClick={openProfileModal}
                 title="الحساب الشخصي والتفضيلات"

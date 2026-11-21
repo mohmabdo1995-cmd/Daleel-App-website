@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import { AuthProvider } from './contexts/AuthContext';
+import { AppErrorBoundary } from './components/common/AppErrorBoundary';
 import './index.css';
 
 // Progressive Web App (PWA) Service Worker Lifecycle Management
@@ -63,8 +64,10 @@ if ('serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </AppErrorBoundary>
   </StrictMode>
 );

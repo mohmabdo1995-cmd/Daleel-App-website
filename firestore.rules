@@ -47,7 +47,7 @@ service cloud.firestore {
     function isValidUserPreferences(prefs) {
       return prefs is map &&
         prefs.keys().hasAll(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects']) &&
-        prefs.keys().hasOnly(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects']) &&
+        prefs.keys().hasOnly(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects', 'savedResourceIds']) &&
         (prefs.theme == 'light' || prefs.theme == 'dark') &&
         prefs.notificationsEnabled is bool &&
         prefs.soundEnabled is bool &&
@@ -55,12 +55,17 @@ service cloud.firestore {
         prefs.pomodoroWorkMinutes is int && prefs.pomodoroWorkMinutes >= 1 && prefs.pomodoroWorkMinutes <= 120 &&
         prefs.pomodoroBreakMinutes is int && prefs.pomodoroBreakMinutes >= 1 && prefs.pomodoroBreakMinutes <= 60 &&
         prefs.favoriteSubjects is list && prefs.favoriteSubjects.size() <= 20 &&
-        (prefs.favoriteSubjects.size() == 0 || prefs.favoriteSubjects[0] is string);
+        (prefs.favoriteSubjects.size() == 0 || prefs.favoriteSubjects[0] is string) &&
+        (!('savedResourceIds' in prefs) || (
+          prefs.savedResourceIds is list &&
+          prefs.savedResourceIds.size() <= 100 &&
+          (prefs.savedResourceIds.size() == 0 || prefs.savedResourceIds[0] is string)
+        ));
     }
 
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'displayName', 'preferences', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'college', 'academicYear', 'preferences', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'college', 'academicYear', 'authProvider', 'preferences', 'createdAt', 'updatedAt', 'lastLoginAt']) &&
         data.uid == userId &&
         data.uid == request.auth.uid &&
         isValidString(data.email, 3, 254) &&
@@ -68,9 +73,11 @@ service cloud.firestore {
         (!('photoURL' in data) || isValidString(data.photoURL, 0, 1000)) &&
         (!('college' in data) || isValidString(data.college, 0, 150)) &&
         (!('academicYear' in data) || isValidString(data.academicYear, 0, 80)) &&
+        (!('authProvider' in data) || isValidString(data.authProvider, 0, 60)) &&
         isValidUserPreferences(data.preferences) &&
         isValidString(data.createdAt, 1, 50) &&
-        isValidString(data.updatedAt, 1, 50);
+        isValidString(data.updatedAt, 1, 50) &&
+        (!('lastLoginAt' in data) || isValidString(data.lastLoginAt, 0, 50));
     }
 
     function isValidLecture(data, userId, lectureId) {
@@ -107,6 +114,38 @@ service cloud.firestore {
         isValidString(data.gradeLetter, 1, 10);
     }
 
+    function isValidPersonalResource(data, userId, resourceId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'url', 'subjectTag', 'category', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'title', 'description', 'url', 'subjectTag', 'category', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.id == resourceId &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        isValidString(data.title, 1, 200) &&
+        (!('description' in data) || isValidString(data.description, 0, 1000)) &&
+        isValidString(data.url, 8, 1000) &&
+        data.url.matches('^https?://.*') &&
+        isValidString(data.subjectTag, 1, 100) &&
+        data.category in ['book', 'video', 'telegram', 'notes', 'summary'] &&
+        isValidString(data.createdAt, 1, 50) &&
+        isValidString(data.updatedAt, 1, 50);
+    }
+
+    function isValidSubjectProgress(data, userId, subjectId) {
+      return data.keys().hasAll(['id', 'userId', 'subjectId', 'notes', 'completedTopicIds', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'subjectId', 'notes', 'completedTopicIds', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.id == subjectId &&
+        data.userId == userId &&
+        data.userId == request.auth.uid &&
+        isValidString(data.subjectId, 1, 100) &&
+        isValidString(data.notes, 0, 4000) &&
+        data.completedTopicIds is list &&
+        data.completedTopicIds.size() <= 100 &&
+        (data.completedTopicIds.size() == 0 || data.completedTopicIds[0] is string) &&
+        isValidString(data.updatedAt, 1, 50);
+    }
+
     // --- Private User Account Data (Strict Owner Isolation & PII Protection) ---
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -118,7 +157,8 @@ service cloud.firestore {
         incoming().uid == existing().uid &&
         incoming().email == existing().email &&
         incoming().createdAt == existing().createdAt &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'college', 'academicYear', 'preferences', 'updatedAt']);
+        (!('authProvider' in existing()) || incoming().authProvider == existing().authProvider) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'college', 'academicYear', 'preferences', 'updatedAt', 'lastLoginAt']);
       allow delete: if isValidId(userId) && isOwner(userId) && isVerifiedUser();
 
       // User Personal Lecture Schedules
@@ -126,8 +166,10 @@ service cloud.firestore {
         allow get: if isValidId(userId) && isValidId(lectureId) && (isOwner(userId) || isAdmin());
         allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
         allow create: if isValidId(userId) && isValidId(lectureId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
           isValidLecture(incoming(), userId, lectureId);
         allow update: if isValidId(userId) && isValidId(lectureId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
           isValidLecture(incoming(), userId, lectureId) &&
           incoming().id == existing().id &&
           incoming().userId == existing().userId &&
@@ -141,19 +183,64 @@ service cloud.firestore {
         allow get: if isValidId(userId) && isValidId(courseId) && (isOwner(userId) || isAdmin());
         allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
         allow create: if isValidId(userId) && isValidId(courseId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
           isValidGpaCourse(incoming(), userId, courseId);
         allow update: if isValidId(userId) && isValidId(courseId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
           isValidGpaCourse(incoming(), userId, courseId) &&
           incoming().id == existing().id &&
           incoming().userId == existing().userId &&
           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'credits', 'gradePoint', 'gradeLetter']);
         allow delete: if isValidId(userId) && isValidId(courseId) && isOwner(userId) && isVerifiedUser();
       }
+
+      // User Personal Study Resources
+      match /personal_resources/{resourceId} {
+        allow get: if isValidId(userId) && isValidId(resourceId) && (isOwner(userId) || isAdmin());
+        allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
+        allow create: if isValidId(userId) && isValidId(resourceId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          isValidPersonalResource(incoming(), userId, resourceId);
+        allow update: if isValidId(userId) && isValidId(resourceId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          isValidPersonalResource(incoming(), userId, resourceId) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'url', 'subjectTag', 'category', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(resourceId) && isOwner(userId) && isVerifiedUser();
+      }
+
+      // User Subject Progress & Personal Notes
+      match /subject_progress/{subjectId} {
+        allow get: if isValidId(userId) && isValidId(subjectId) && (isOwner(userId) || isAdmin());
+        allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
+        allow create: if isValidId(userId) && isValidId(subjectId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          isValidSubjectProgress(incoming(), userId, subjectId);
+        allow update: if isValidId(userId) && isValidId(subjectId) && isOwner(userId) && isVerifiedUser() &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          isValidSubjectProgress(incoming(), userId, subjectId) &&
+          incoming().id == existing().id &&
+          incoming().userId == existing().userId &&
+          incoming().subjectId == existing().subjectId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['notes', 'completedTopicIds', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(subjectId) && isOwner(userId) && isVerifiedUser();
+      }
     }
 
     // --- Existing Public / Admin CMS Collections ---
     match /site_config/{configId} {
       allow read, write: if true;
+    }
+
+    match /college_info/{infoId} {
+      allow read: if true;
+      allow create, update: if isAdmin() || (
+        isValidString(request.resource.data.title, 1, 300) &&
+        request.resource.data.overview is string
+      );
+      allow delete: if isAdmin();
     }
 
     match /articles/{articleId} {

@@ -26,7 +26,7 @@ import { UserProfileModal } from './components/auth/UserProfileModal';
 export default function App() {
   const [activePage, setActivePage] = useState<ActivePage>('landing');
   const [selectedSubjectId, setSelectedSubjectId] = useState<SubjectId | undefined>(undefined);
-  const { lectures } = useAuth();
+  const { lectures, syncError, clearSyncError } = useAuth();
   const lecturesRef = useRef(lectures);
 
   useEffect(() => {
@@ -160,6 +160,21 @@ export default function App() {
         siteConfig={siteConfig}
         onNavigate={(p) => handleNavigate(p)}
       />
+
+      {syncError && (
+        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center justify-between gap-3">
+            <span>{syncError}</span>
+            <button
+              type="button"
+              onClick={clearSyncError}
+              className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/60 text-rose-900 dark:text-rose-100 text-[11px] font-bold cursor-pointer"
+            >
+              إغلاق
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Render */}
       <main className="flex-1">

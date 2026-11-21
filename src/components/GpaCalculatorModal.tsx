@@ -33,30 +33,46 @@ export const GpaCalculatorModal: React.FC<GpaCalculatorModalProps> = ({ isOpen, 
   const [newCourseName, setNewCourseName] = useState('');
   const [newCourseCredits, setNewCourseCredits] = useState<number>(3);
   const [newCourseGrade, setNewCourseGrade] = useState<number>(4.0);
+  const [gpaError, setGpaError] = useState<string | null>(null);
 
   const handleAddCourse = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCourseName.trim()) return;
+    setGpaError(null);
 
     const matchedGrade = GRADE_SCALE.find(g => g.point === newCourseGrade) || GRADE_SCALE[0];
-    await addGpaCourse({
-      name: newCourseName.trim(),
-      credits: Number(newCourseCredits),
-      gradePoint: newCourseGrade,
-      gradeLetter: matchedGrade.letter
-    });
+    try {
+      await addGpaCourse({
+        name: newCourseName.trim(),
+        credits: Number(newCourseCredits),
+        gradePoint: newCourseGrade,
+        gradeLetter: matchedGrade.letter
+      });
 
-    setNewCourseName('');
-    setNewCourseCredits(3);
-    setNewCourseGrade(4.0);
+      setNewCourseName('');
+      setNewCourseCredits(3);
+      setNewCourseGrade(4.0);
+    } catch {
+      setGpaError('تعذر حفظ المادة في السحابة حالياً. تحقق من اتصالك وحاول مرة أخرى.');
+    }
   };
 
   const handleDeleteCourse = async (id: string) => {
-    await deleteGpaCourse(id);
+    setGpaError(null);
+    try {
+      await deleteGpaCourse(id);
+    } catch {
+      setGpaError('تعذر حذف المادة حالياً.');
+    }
   };
 
   const handleReset = async () => {
-    await resetGpaCourses();
+    setGpaError(null);
+    try {
+      await resetGpaCourses();
+    } catch {
+      setGpaError('تعذر إعادة ضبط المقررات حالياً.');
+    }
   };
 
   // Calculation
@@ -74,6 +90,19 @@ export const GpaCalculatorModal: React.FC<GpaCalculatorModalProps> = ({ isOpen, 
       icon={<Calculator className="w-5 h-5 text-[#16958E]" />}
     >
       <div className="space-y-6">
+        {gpaError && (
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-200 text-xs font-bold flex items-center justify-between gap-2">
+            <span>{gpaError}</span>
+            <button
+              type="button"
+              onClick={() => setGpaError(null)}
+              className="text-[11px] underline cursor-pointer"
+            >
+              إغلاق
+            </button>
+          </div>
+        )}
+
         {/* Sync status pill */}
         <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-[#BCEBFF]/20 dark:bg-white/5 border border-[#BCEBFF]/40 dark:border-[#16958E]/25 text-xs">
           {isAuthenticated ? (
