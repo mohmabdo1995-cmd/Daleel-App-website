@@ -1,5 +1,6 @@
 import { MedicalTerm, MedicalTermSource } from '../types';
 import { buildMedicalSearchTokens, slugifyMedicalTermId } from '../services/medicalSearch';
+import { EXPANDED_MEDICAL_TERMS } from './medicalTerms';
 
 export const BUILT_IN_MEDICAL_SPECIALTIES: string[] = [
   'Anatomy',
@@ -24,6 +25,13 @@ export const BUILT_IN_MEDICAL_SPECIALTIES: string[] = [
   'Clinical Terminology',
   'Medical Procedures',
   'Laboratory Medicine',
+  'Oncology',
+  'Dermatology',
+  'Ophthalmology',
+  'ENT',
+  'Endocrinology',
+  'Gastroenterology',
+  'Nephrology',
 ];
 
 export const MEDICAL_SPECIALTY_AR_LABELS: Record<string, string> = {
@@ -49,6 +57,13 @@ export const MEDICAL_SPECIALTY_AR_LABELS: Record<string, string> = {
   'Clinical Terminology': 'المصطلحات السريرية',
   'Medical Procedures': 'الإجراءات الطبية',
   'Laboratory Medicine': 'الطب المخبري',
+  Oncology: 'علم الأورام',
+  Dermatology: 'الأمراض الجلدية',
+  Ophthalmology: 'طب العيون',
+  ENT: 'الأنف والأذن والحنجرة',
+  Endocrinology: 'الغدد الصماء',
+  Gastroenterology: 'أمراض الجهاز الهضمي',
+  Nephrology: 'أمراض الكلى',
 };
 
 interface RawSeedTerm {
@@ -1869,7 +1884,12 @@ const RAW_MEDICAL_TERMS: RawSeedTerm[] = [
   },
 ];
 
-export const MEDICAL_TERMS_SEED: MedicalTerm[] = RAW_MEDICAL_TERMS.map((raw) => {
+const ALL_RAW_MEDICAL_TERMS: RawSeedTerm[] = [
+  ...RAW_MEDICAL_TERMS,
+  ...EXPANDED_MEDICAL_TERMS,
+];
+
+export const MEDICAL_TERMS_SEED: MedicalTerm[] = ALL_RAW_MEDICAL_TERMS.map((raw) => {
   const id = raw.id || slugifyMedicalTermId(raw.term_en);
   return {
     id,
