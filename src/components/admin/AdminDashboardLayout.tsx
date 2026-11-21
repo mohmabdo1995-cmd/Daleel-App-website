@@ -6,7 +6,7 @@ import {
   Plus, Trash2, Eye, EyeOff, Download, Upload, Clock, Layers, Sparkles,
   BookOpen, Calendar, HelpCircle, ExternalLink, Globe, Phone, Mail, MapPin,
   Video, Play, MoveUp, MoveDown, Heading, Bold, Italic, List, ListOrdered,
-  Quote, ImageIcon, FileCode, Check, X, ArrowRight, Edit3, Film, AlertTriangle, Radio, Cloud
+  Quote, ImageIcon, FileCode, Check, X, ArrowRight, Edit3, Film, AlertTriangle, Radio, Cloud, Stethoscope
 } from 'lucide-react';
 import {
   FirebaseService, SiteConfig, DEFAULT_SITE_CONFIG, SectionVisibility,
@@ -18,6 +18,9 @@ import { COLLEGE_INFO, SUBJECTS_DATA } from '../../data/academicContent';
 import { Modal } from '../common/Modal';
 import { GoogleDriveStorageManager } from './GoogleDriveStorageManager';
 import { StudyResourcesManager } from './StudyResourcesManager';
+import { MedicalTermsManager } from './MedicalTermsManager';
+import { MedicalTermsService } from '../../services/medicalTermsService';
+import { MEDICAL_TERMS_SEED } from '../../data/medicalTermsSeed';
 import {
   buildRepeatedTickerItems,
   computeTickerDuration,
@@ -31,6 +34,7 @@ interface AdminDashboardLayoutProps {
 type AdminTab =
   | 'overview'
   | 'ticker'
+  | 'medical_dictionary'
   | 'study_resources'
   | 'articles'
   | 'college_sections'
@@ -65,6 +69,9 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
   const [subjects, setSubjects] = useState<Subject[]>(SUBJECTS_DATA);
   const [tickerItems, setTickerItems] = useState<TickerItem[]>([]);
   const [studyResourcesCount, setStudyResourcesCount] = useState<number>(0);
+  const [medicalTermsCount, setMedicalTermsCount] = useState<number>(MEDICAL_TERMS_SEED.length);
+  const [medicalTermsNeedsReviewCount, setMedicalTermsNeedsReviewCount] = useState<number>(0);
+  const [medicalTermsFirestoreActive, setMedicalTermsFirestoreActive] = useState<boolean>(false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -123,6 +130,19 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
     const unsubscribeCollege = FirebaseService.subscribeCollegeInfo((data) => setCollegeInfo(data));
     const unsubscribeSubj = FirebaseService.subscribeSubjects((data) => setSubjects(data));
     const unsubscribeResources = FirebaseService.subscribeStudyResources((data) => setStudyResourcesCount(data.length));
+    const unsubscribeMedicalTerms = MedicalTermsService.subscribeAdminMedicalTerms((items) => {
+      if (items.length > 0) {
+        setMedicalTermsCount(items.length);
+        setMedicalTermsNeedsReviewCount(
+          items.filter((t) => t.verification_status === 'needs_review').length
+        );
+        setMedicalTermsFirestoreActive(true);
+      } else {
+        setMedicalTermsCount(MEDICAL_TERMS_SEED.length);
+        setMedicalTermsNeedsReviewCount(0);
+        setMedicalTermsFirestoreActive(false);
+      }
+    });
 
     return () => {
       unsubscribeConfig();
@@ -135,6 +155,7 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
       unsubscribeCollege();
       unsubscribeSubj();
       unsubscribeResources();
+      unsubscribeMedicalTerms();
     };
   }, []);
 
@@ -557,6 +578,27 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
             </button>
 
             <button
+              onClick={() => setActiveTab('medical_dictionary')}
+              className={`w-full text-right px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-between transition-all ${
+                activeTab === 'medical_dictionary'
+                  ? 'bg-[#071A3D] text-white shadow-md'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Stethoscope className="w-4 h-4 text-[#16958E]" />
+                <span>فهرس المصطلحات الطبية</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                activeTab === 'medical_dictionary'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-[#16958E]/15 text-[#16958E]'
+              }`}>
+                {medicalTermsCount}
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('study_resources')}
               className={`w-full text-right px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-between transition-all ${
                 activeTab === 'study_resources'
@@ -780,6 +822,40 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                     <span>تعديل نصوص الكلية</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Coordinated Bento Grid Card for Medical Terminology Index */}
+              <div className="p-5 rounded-3xl bg-gradient-to-br from-[#071A3D] to-[#0f355c] text-white border border-[#16958E]/40 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-[#16958E]/25 border border-[#BCEBFF]/30 text-[#BCEBFF] flex items-center justify-center flex-shrink-0">
+                    <Stethoscope className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-extrabold font-tajawal text-white">
+                        فهرس المصطلحات الطبية | Medical Terminology Index
+                      </h3>
+                      <span className="text-[11px] font-mono text-[#BCEBFF]">
+                        · {medicalTermsFirestoreActive ? 'Firestore متصل' : 'مزامنة القاعدة مطلوبة'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
+                      قاعدة معرفية طبية ثنائية اللغة مع محرك بحث ذكي، نطق صوتي، ومراجع موثوقة، ودعم كامل للاستيراد والمراجعة العلمية.
+                    </p>
+                    <div className="text-xs font-bold text-[#BCEBFF] pt-1">
+                      إجمالي المصطلحات: {medicalTermsCount} · قيد المراجعة: {medicalTermsNeedsReviewCount}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('medical_dictionary')}
+                  className="px-4 py-2.5 rounded-xl bg-[#16958E] hover:bg-[#13807a] text-white text-xs font-bold shadow-md flex items-center gap-1.5 transition-all flex-shrink-0 cursor-pointer self-start sm:self-center"
+                >
+                  <span>إدارة فهرس المصطلحات</span>
+                  <ArrowRight className="w-4 h-4 rotate-180" />
+                </button>
               </div>
             </div>
           )}
@@ -1142,6 +1218,15 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                 )}
               </div>
             </div>
+          )}
+
+          {/* TAB: MEDICAL TERMINOLOGY INDEX */}
+          {activeTab === 'medical_dictionary' && (
+            <MedicalTermsManager
+              onNotify={(msg) => {
+                showToast(msg);
+              }}
+            />
           )}
 
           {/* TAB: STUDY RESOURCES & DIGITAL LIBRARY (مصادر الدراسة والمكتبة الرقمية) */}

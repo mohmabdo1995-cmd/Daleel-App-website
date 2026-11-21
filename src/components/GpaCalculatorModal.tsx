@@ -1,7 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calculator, Plus, Trash2, Award, RotateCcw, ShieldCheck, LogIn } from 'lucide-react';
 import { Modal } from './common/Modal';
 import { useAuth } from '../contexts/AuthContext';
+import { getDraftState, setDraftState, clearDraftState } from '../services/navigationState';
+
+interface GpaFormDraft {
+  newCourseName: string;
+  newCourseCredits: number;
+  newCourseGrade: number;
+}
 
 interface GpaCalculatorModalProps {
   isOpen: boolean;
@@ -30,10 +37,23 @@ export const GpaCalculatorModal: React.FC<GpaCalculatorModalProps> = ({ isOpen, 
     openAuthModal,
   } = useAuth();
 
-  const [newCourseName, setNewCourseName] = useState('');
-  const [newCourseCredits, setNewCourseCredits] = useState<number>(3);
-  const [newCourseGrade, setNewCourseGrade] = useState<number>(4.0);
+  const initialDraft = getDraftState<GpaFormDraft | null>('gpa_form_draft', null);
+  const [newCourseName, setNewCourseName] = useState(initialDraft?.newCourseName || '');
+  const [newCourseCredits, setNewCourseCredits] = useState<number>(initialDraft?.newCourseCredits ?? 3);
+  const [newCourseGrade, setNewCourseGrade] = useState<number>(initialDraft?.newCourseGrade ?? 4.0);
   const [gpaError, setGpaError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (newCourseName.trim() || newCourseCredits !== 3 || newCourseGrade !== 4.0) {
+      setDraftState<GpaFormDraft>('gpa_form_draft', {
+        newCourseName,
+        newCourseCredits,
+        newCourseGrade,
+      });
+    } else {
+      clearDraftState('gpa_form_draft');
+    }
+  }, [newCourseName, newCourseCredits, newCourseGrade]);
 
   const handleAddCourse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +69,7 @@ export const GpaCalculatorModal: React.FC<GpaCalculatorModalProps> = ({ isOpen, 
         gradeLetter: matchedGrade.letter
       });
 
+      clearDraftState('gpa_form_draft');
       setNewCourseName('');
       setNewCourseCredits(3);
       setNewCourseGrade(4.0);

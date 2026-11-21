@@ -146,6 +146,42 @@ service cloud.firestore {
         isValidString(data.updatedAt, 1, 50);
     }
 
+    function isValidMedicalTerm(data, termId) {
+      return data.keys().hasAll(['id', 'term_en', 'term_en_lower', 'term_ar', 'synonyms', 'pronunciation', 'ipa', 'english_definition', 'arabic_definition', 'specialty', 'sources', 'verification_status', 'last_verified', 'search_tokens', 'created_at', 'updated_at']) &&
+        data.keys().hasOnly(['id', 'term_en', 'term_en_lower', 'term_ar', 'synonyms', 'pronunciation', 'ipa', 'audio_url', 'english_definition', 'arabic_definition', 'specialty', 'sources', 'verification_status', 'last_verified', 'search_tokens', 'created_at', 'updated_at']) &&
+        isValidId(data.id) &&
+        data.id == termId &&
+        isValidString(data.term_en, 2, 200) &&
+        isValidString(data.term_en_lower, 2, 200) &&
+        isValidString(data.term_ar, 2, 200) &&
+        data.synonyms is list &&
+        data.synonyms.size() <= 25 &&
+        (data.synonyms.size() == 0 || data.synonyms[0] is string) &&
+        isValidString(data.pronunciation, 0, 200) &&
+        isValidString(data.ipa, 0, 200) &&
+        (!('audio_url' in data) || (
+          isValidString(data.audio_url, 0, 1000) &&
+          (data.audio_url.size() == 0 || data.audio_url.matches('^https://.*'))
+        )) &&
+        isValidString(data.english_definition, 10, 3000) &&
+        isValidString(data.arabic_definition, 10, 3000) &&
+        isValidString(data.specialty, 2, 100) &&
+        data.sources is list &&
+        data.sources.size() >= 1 &&
+        data.sources.size() <= 10 &&
+        data.sources[0] is map &&
+        isValidString(data.sources[0].name, 1, 150) &&
+        isValidString(data.sources[0].url, 8, 1000) &&
+        data.sources[0].url.matches('^https://.*') &&
+        data.verification_status in ['verified', 'needs_review', 'draft'] &&
+        isValidString(data.last_verified, 4, 30) &&
+        data.search_tokens is list &&
+        data.search_tokens.size() <= 60 &&
+        (data.search_tokens.size() == 0 || data.search_tokens[0] is string) &&
+        isValidString(data.created_at, 1, 50) &&
+        isValidString(data.updated_at, 1, 50);
+    }
+
     // --- Private User Account Data (Strict Owner Isolation & PII Protection) ---
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -314,6 +350,34 @@ service cloud.firestore {
         request.resource.data.description is string
       );
       allow delete: if true;
+    }
+
+    match /medical_terms/{termId} {
+      allow get: if isValidId(termId) && (existing().verification_status == 'verified' || isAdmin());
+      allow list: if existing().verification_status == 'verified' || isAdmin();
+      allow create: if isValidId(termId) && isAdmin() && isValidMedicalTerm(incoming(), termId);
+      allow update: if isValidId(termId) && isAdmin() &&
+        isValidMedicalTerm(incoming(), termId) &&
+        incoming().id == existing().id &&
+        incoming().created_at == existing().created_at &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'term_en',
+          'term_en_lower',
+          'term_ar',
+          'synonyms',
+          'pronunciation',
+          'ipa',
+          'audio_url',
+          'english_definition',
+          'arabic_definition',
+          'specialty',
+          'sources',
+          'verification_status',
+          'last_verified',
+          'search_tokens',
+          'updated_at'
+        ]);
+      allow delete: if isValidId(termId) && isAdmin();
     }
 
     match /admin_logs/{logId} {

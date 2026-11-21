@@ -1,6 +1,7 @@
 // Admin Auth Service with Rate Limiting, Lockout & Cryptographic Session Validation
 import { auth } from './firebase';
 import { signInAnonymously, signOut } from 'firebase/auth';
+import { MedicalTermsService } from './medicalTermsService';
 
 const ADMIN_PASSWORD_HASH = '20052026'; // Secret administrative password
 const AUTH_SESSION_KEY = 'daleelak_admin_authenticated_session';
@@ -145,6 +146,30 @@ export class AdminAuthService {
       success: false,
       error: `كلمة المرور غير صحيحة! المتبقي لديك ${remainingAttempts} محاولات قبل القفل المؤقت.`
     };
+  }
+
+  static async loginWithGoogleAdmin(): Promise<{ success: boolean; error?: string; email?: string }> {
+    const res = await MedicalTermsService.signInAdminWithGoogle();
+    if (!res.authorized) {
+      return { success: false, error: res.error };
+    }
+
+    localStorage.setItem(FAILED_ATTEMPTS_KEY, '0');
+    localStorage.removeItem(LOCKOUT_TIMESTAMP_KEY);
+
+    const now = Date.now();
+    const salt = Math.random().toString(36).substring(2, 10);
+    const token = generateSessionSignature(now, salt);
+
+    const sessionData = {
+      auth: true,
+      loginTime: now,
+      salt,
+      token,
+      adminEmail: res.email || '',
+    };
+    sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionData));
+    return { success: true, email: res.email || undefined };
   }
 
   static async logout(): Promise<void> {

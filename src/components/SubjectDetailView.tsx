@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Subject } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { getDraftState, setDraftState, clearDraftState } from '../services/navigationState';
 import {
   ArrowRight,
   BookOpen,
@@ -25,11 +26,22 @@ interface SubjectDetailViewProps {
 
 export const SubjectDetailView: React.FC<SubjectDetailViewProps> = ({ subject, onBack }) => {
   const { isAuthenticated, subjectProgressMap, saveSubjectProgress } = useAuth();
-  const [activeTab, setActiveTab] = useState<'overview' | 'lectures' | 'tips' | 'books'>('overview');
-  const [expandedLecture, setExpandedLecture] = useState<string | null>(null);
+  const tabKey = `subject_tab_${subject.id}`;
+  const expandedKey = `subject_expanded_${subject.id}`;
+  const notesDirtyKey = `subject_notes_dirty_${subject.id}`;
+
+  const [activeTab, setActiveTab] = useState<'overview' | 'lectures' | 'tips' | 'books'>(() =>
+    getDraftState<'overview' | 'lectures' | 'tips' | 'books'>(tabKey, 'overview')
+  );
+  const [expandedLecture, setExpandedLecture] = useState<string | null>(() =>
+    getDraftState<string | null>(expandedKey, null)
+  );
 
   const currentProgress = subjectProgressMap[subject.id];
-  const [personalNotes, setPersonalNotes] = useState<string>(currentProgress?.notes || '');
+  const [personalNotes, setPersonalNotes] = useState<string>(() => {
+    const dirty = getDraftState<string | null>(notesDirtyKey, null);
+    return dirty !== null ? dirty : currentProgress?.notes || '';
+  });
   const [completedTopics, setCompletedTopics] = useState<string[]>(
     currentProgress?.completedTopicIds || []
   );
@@ -37,10 +49,24 @@ export const SubjectDetailView: React.FC<SubjectDetailViewProps> = ({ subject, o
   const [noteStatusMsg, setNoteStatusMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    setActiveTab(getDraftState<'overview' | 'lectures' | 'tips' | 'books'>(tabKey, 'overview'));
+    setExpandedLecture(getDraftState<string | null>(expandedKey, null));
+  }, [tabKey, expandedKey]);
+
+  useEffect(() => {
+    setDraftState(tabKey, activeTab);
+  }, [tabKey, activeTab]);
+
+  useEffect(() => {
+    setDraftState(expandedKey, expandedLecture);
+  }, [expandedKey, expandedLecture]);
+
+  useEffect(() => {
     const progress = subjectProgressMap[subject.id];
-    setPersonalNotes(progress?.notes || '');
+    const dirty = getDraftState<string | null>(notesDirtyKey, null);
+    setPersonalNotes(dirty !== null ? dirty : progress?.notes || '');
     setCompletedTopics(progress?.completedTopicIds || []);
-  }, [subject.id, subjectProgressMap]);
+  }, [subject.id, subjectProgressMap, notesDirtyKey]);
 
   const handleSaveNotes = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,6 +74,7 @@ export const SubjectDetailView: React.FC<SubjectDetailViewProps> = ({ subject, o
     setNoteStatusMsg(null);
     try {
       await saveSubjectProgress(subject.id, personalNotes, completedTopics);
+      clearDraftState(notesDirtyKey);
       setNoteStatusMsg(
         isAuthenticated
           ? 'تم حفظ ملاحظاتك وتقدمك في حسابك السحابي بنجاح.'
@@ -220,7 +247,11 @@ export const SubjectDetailView: React.FC<SubjectDetailViewProps> = ({ subject, o
                 rows={4}
                 maxLength={4000}
                 value={personalNotes}
-                onChange={(e) => setPersonalNotes(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPersonalNotes(val);
+                  setDraftState(notesDirtyKey, val);
+                }}
                 placeholder="دوّن ملخصاتك أو نقاط المراجعة المهمة لهذه المادة..."
                 className="w-full p-4 rounded-2xl bg-[#BCEBFF]/15 dark:bg-white/5 border border-[#BCEBFF]/60 dark:border-[#16958E]/30 text-sm text-[#071A3D] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#16958E]"
               />

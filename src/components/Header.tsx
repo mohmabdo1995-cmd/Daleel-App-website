@@ -86,6 +86,14 @@ export const Header: React.FC<HeaderProps> = ({
             >
               الجدول
             </button>
+            <button
+              onClick={() => setActivePage('dictionary')}
+              className={`h-9 px-3.5 rounded-xl text-xs font-bold transition-all flex items-center ${
+                activePage === 'dictionary' ? 'bg-[#071A3D] text-white dark:bg-[#16958E]' : 'text-[#071A3D] dark:text-slate-200 hover:bg-[#BCEBFF]/30'
+              }`}
+            >
+              المصطلحات الطبية
+            </button>
           </nav>
 
           {/* Action Buttons: Unified in height (h-9 mobile, h-10 desktop) and proportional styling */}

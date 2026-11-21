@@ -7,17 +7,38 @@ import {
 import { ArticleItem } from '../types';
 import { FirebaseService } from '../services/firebase';
 import { Modal } from './common/Modal';
+import { getDraftState, setDraftState } from '../services/navigationState';
 
 interface ArticlesSectionProps {
   onBack: () => void;
+  selectedArticleId?: string;
+  onSelectArticle?: (articleId: string) => void;
+  onCloseArticle?: () => void;
 }
 
-export const ArticlesSection: React.FC<ArticlesSectionProps> = ({ onBack }) => {
+export const ArticlesSection: React.FC<ArticlesSectionProps> = ({
+  onBack,
+  selectedArticleId,
+  onSelectArticle,
+  onCloseArticle,
+}) => {
   const [articles, setArticles] = useState<ArticleItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>(() =>
+    getDraftState<string>('articles_search', '')
+  );
+  const [selectedCategory, setSelectedCategory] = useState<string>(() =>
+    getDraftState<string>('articles_category', 'all')
+  );
   const [activeArticle, setActiveArticle] = useState<ArticleItem | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  useEffect(() => {
+    setDraftState('articles_search', searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setDraftState('articles_category', selectedCategory);
+  }, [selectedCategory]);
 
   useEffect(() => {
     const unsubscribe = FirebaseService.subscribeArticles((data) => {
@@ -26,6 +47,17 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({ onBack }) => {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!selectedArticleId) {
+      setActiveArticle(null);
+      return;
+    }
+    const found = articles.find((a) => a.id === selectedArticleId);
+    if (found) {
+      setActiveArticle(found);
+    }
+  }, [selectedArticleId, articles]);
 
   const categories = Array.from(
     new Set(articles.map(a => a.category).filter(Boolean) as string[])
@@ -194,7 +226,13 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({ onBack }) => {
             <motion.div
               key={art.id}
               whileHover={{ y: -4 }}
-              onClick={() => setActiveArticle(art)}
+              onClick={() => {
+                if (onSelectArticle) {
+                  onSelectArticle(art.id);
+                } else {
+                  setActiveArticle(art);
+                }
+              }}
               className="bg-white dark:bg-[#071A3D] rounded-3xl border border-[#BCEBFF]/80 dark:border-[#16958E]/30 shadow-sm hover:border-[#16958E] transition-all cursor-pointer overflow-hidden flex flex-col group relative"
             >
               {art.coverImage ? (
@@ -261,7 +299,13 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({ onBack }) => {
       {activeArticle && (
         <Modal
           isOpen={Boolean(activeArticle)}
-          onClose={() => setActiveArticle(null)}
+          onClose={() => {
+            if (onCloseArticle) {
+              onCloseArticle();
+            } else {
+              setActiveArticle(null);
+            }
+          }}
           maxWidth="3xl"
           title={activeArticle.title}
           subtitle={`${activeArticle.category || 'مقال أكاديمي'} • ${new Date(activeArticle.createdAt).toLocaleDateString('ar-EG')}`}
@@ -278,7 +322,13 @@ export const ArticlesSection: React.FC<ArticlesSectionProps> = ({ onBack }) => {
           }
           footer={
             <button
-              onClick={() => setActiveArticle(null)}
+              onClick={() => {
+                if (onCloseArticle) {
+                  onCloseArticle();
+                } else {
+                  setActiveArticle(null);
+                }
+              }}
               className="px-6 py-2.5 rounded-xl bg-[#071A3D] hover:bg-[#16958E] text-white font-bold text-xs shadow-md transition-all cursor-pointer"
             >
               إغلاق المقال

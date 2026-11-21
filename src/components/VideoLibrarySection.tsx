@@ -7,16 +7,31 @@ import {
 import { VideoItem } from '../types';
 import { FirebaseService } from '../services/firebase';
 import { Modal } from './common/Modal';
+import { getDraftState, setDraftState } from '../services/navigationState';
 
 interface VideoLibrarySectionProps {
   onBack: () => void;
+  selectedVideoId?: string;
+  onSelectVideo?: (videoId: string) => void;
+  onCloseVideo?: () => void;
 }
 
-export const VideoLibrarySection: React.FC<VideoLibrarySectionProps> = ({ onBack }) => {
+export const VideoLibrarySection: React.FC<VideoLibrarySectionProps> = ({
+  onBack,
+  selectedVideoId,
+  onSelectVideo,
+  onCloseVideo,
+}) => {
   const [videos, setVideos] = useState<VideoItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState<string>(() =>
+    getDraftState<string>('videos_search', '')
+  );
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  useEffect(() => {
+    setDraftState('videos_search', searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
     const unsubscribe = FirebaseService.subscribeVideos((data) => {
@@ -25,6 +40,17 @@ export const VideoLibrarySection: React.FC<VideoLibrarySectionProps> = ({ onBack
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!selectedVideoId) {
+      setActiveVideo(null);
+      return;
+    }
+    const found = videos.find((v) => v.id === selectedVideoId);
+    if (found) {
+      setActiveVideo(found);
+    }
+  }, [selectedVideoId, videos]);
 
   const filteredVideos = videos.filter(v =>
     v.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -170,7 +196,13 @@ export const VideoLibrarySection: React.FC<VideoLibrarySectionProps> = ({ onBack
             <motion.div
               key={vid.id}
               whileHover={{ y: -4 }}
-              onClick={() => setActiveVideo(vid)}
+              onClick={() => {
+                if (onSelectVideo) {
+                  onSelectVideo(vid.id);
+                } else {
+                  setActiveVideo(vid);
+                }
+              }}
               className="bg-white dark:bg-[#071A3D] rounded-3xl border border-[#BCEBFF]/80 dark:border-[#16958E]/30 shadow-sm hover:border-[#16958E] transition-all cursor-pointer overflow-hidden flex flex-col group relative"
             >
               <div className="h-48 w-full bg-[#071A3D] relative overflow-hidden flex items-center justify-center">
@@ -227,7 +259,13 @@ export const VideoLibrarySection: React.FC<VideoLibrarySectionProps> = ({ onBack
       {activeVideo && (
         <Modal
           isOpen={Boolean(activeVideo)}
-          onClose={() => setActiveVideo(null)}
+          onClose={() => {
+            if (onCloseVideo) {
+              onCloseVideo();
+            } else {
+              setActiveVideo(null);
+            }
+          }}
           maxWidth="4xl"
           title={activeVideo.title}
           subtitle={activeVideo.subject ? `المادة: ${activeVideo.subject}` : 'شرح مرئي مسجل'}
@@ -244,7 +282,13 @@ export const VideoLibrarySection: React.FC<VideoLibrarySectionProps> = ({ onBack
           }
           footer={
             <button
-              onClick={() => setActiveVideo(null)}
+              onClick={() => {
+                if (onCloseVideo) {
+                  onCloseVideo();
+                } else {
+                  setActiveVideo(null);
+                }
+              }}
               className="px-6 py-2.5 rounded-xl bg-[#071A3D] hover:bg-[#16958E] text-white font-bold text-xs shadow-md transition-all cursor-pointer"
             >
               إغلاق الفيديو

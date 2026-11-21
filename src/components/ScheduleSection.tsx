@@ -10,17 +10,38 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Modal } from './common/Modal';
+import { getDraftState, setDraftState, clearDraftState } from '../services/navigationState';
+
+interface ScheduleFormDraft {
+  isModalOpen: boolean;
+  formTitle: string;
+  formSubject: string;
+  formProfessor: string;
+  formHall: string;
+  formDate: string;
+  formTime: string;
+  formDayOfWeek: string;
+  formNotes: string;
+  formPriority: 'high' | 'medium' | 'low';
+  formNotifEnabled: boolean;
+}
 
 interface ScheduleSectionProps {
   onBack: () => void;
   openAddModalInitially?: boolean;
+  onConsumeInitialModal?: () => void;
   onLecturesUpdated?: () => void;
 }
 
 const DAYS_OF_WEEK = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const SUBJECT_OPTIONS = ['Anatomy', 'Physiology', 'Biochemistry', 'Microbiology', 'Pathology', 'Pharmacology', 'عام / مقرر آخر'];
 
-export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAddModalInitially = false, onLecturesUpdated }) => {
+export const ScheduleSection: React.FC<ScheduleSectionProps> = ({
+  onBack,
+  openAddModalInitially = false,
+  onConsumeInitialModal,
+  onLecturesUpdated,
+}) => {
   const {
     lectures,
     isAuthenticated,
@@ -33,20 +54,44 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
     toggleLectureCompleted,
   } = useAuth();
 
-  const [filterTab, setFilterTab] = useState<'all' | 'today' | 'upcoming' | 'past'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>('all');
+  const initialFormDraft = getDraftState<ScheduleFormDraft | null>('schedule_form_draft', null);
 
-  // Calendar View State initialized from user's defaultScheduleView preference
-  const [viewMode, setViewMode] = useState<'calendar' | 'list'>(preferences.defaultScheduleView || 'calendar');
-  const [calendarDate, setCalendarDate] = useState<Date>(new Date());
-  const [selectedDateStr, setSelectedDateStr] = useState<string>(
-    new Date().toISOString().split('T')[0]
+  const [filterTab, setFilterTab] = useState<'all' | 'today' | 'upcoming' | 'past'>(() =>
+    getDraftState<'all' | 'today' | 'upcoming' | 'past'>('schedule_filter_tab', 'all')
   );
-  const [calendarSubjectFilter, setCalendarSubjectFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>(() =>
+    getDraftState<string>('schedule_search', '')
+  );
+  const [selectedSubjectFilter, setSelectedSubjectFilter] = useState<string>(() =>
+    getDraftState<string>('schedule_subject_filter', 'all')
+  );
+
+  // Calendar View State initialized from session draft or user's defaultScheduleView preference
+  const [viewMode, setViewMode] = useState<'calendar' | 'list'>(() =>
+    getDraftState<'calendar' | 'list'>(
+      'schedule_view_mode',
+      preferences.defaultScheduleView || 'calendar'
+    )
+  );
+  const [calendarDate, setCalendarDate] = useState<Date>(() => {
+    const savedMonth = getDraftState<string | null>('schedule_calendar_month', null);
+    if (savedMonth) {
+      const parsed = new Date(savedMonth);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return new Date();
+  });
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(() =>
+    getDraftState<string>('schedule_selected_date', new Date().toISOString().split('T')[0])
+  );
+  const [calendarSubjectFilter, setCalendarSubjectFilter] = useState<string>(() =>
+    getDraftState<string>('schedule_calendar_subject', 'all')
+  );
 
   // Modal State
-  const [isModalOpen, setIsModalOpen] = useState(openAddModalInitially);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(
+    openAddModalInitially || Boolean(initialFormDraft?.isModalOpen)
+  );
   const [editingLecture, setEditingLecture] = useState<Lecture | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -57,20 +102,97 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
   );
 
   // Form Fields
-  const [formTitle, setFormTitle] = useState('');
-  const [formSubject, setFormSubject] = useState(SUBJECT_OPTIONS[0]);
-  const [formProfessor, setFormProfessor] = useState('');
-  const [formHall, setFormHall] = useState('');
-  const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
-  const [formTime, setFormTime] = useState('09:00');
-  const [formDayOfWeek, setFormDayOfWeek] = useState(DAYS_OF_WEEK[0]);
-  const [formNotes, setFormNotes] = useState('');
-  const [formPriority, setFormPriority] = useState<'high' | 'medium' | 'low'>('medium');
-  const [formNotifEnabled, setFormNotifEnabled] = useState(true);
+  const [formTitle, setFormTitle] = useState(initialFormDraft?.formTitle || '');
+  const [formSubject, setFormSubject] = useState(initialFormDraft?.formSubject || SUBJECT_OPTIONS[0]);
+  const [formProfessor, setFormProfessor] = useState(initialFormDraft?.formProfessor || '');
+  const [formHall, setFormHall] = useState(initialFormDraft?.formHall || '');
+  const [formDate, setFormDate] = useState(
+    initialFormDraft?.formDate || new Date().toISOString().split('T')[0]
+  );
+  const [formTime, setFormTime] = useState(initialFormDraft?.formTime || '09:00');
+  const [formDayOfWeek, setFormDayOfWeek] = useState(
+    initialFormDraft?.formDayOfWeek || DAYS_OF_WEEK[0]
+  );
+  const [formNotes, setFormNotes] = useState(initialFormDraft?.formNotes || '');
+  const [formPriority, setFormPriority] = useState<'high' | 'medium' | 'low'>(
+    initialFormDraft?.formPriority || 'medium'
+  );
+  const [formNotifEnabled, setFormNotifEnabled] = useState(
+    initialFormDraft ? initialFormDraft.formNotifEnabled : true
+  );
 
   useEffect(() => {
-    setViewMode(preferences.defaultScheduleView || 'calendar');
-  }, [preferences.defaultScheduleView]);
+    if (openAddModalInitially) {
+      setIsModalOpen(true);
+      onConsumeInitialModal?.();
+    }
+  }, [openAddModalInitially, onConsumeInitialModal]);
+
+  useEffect(() => {
+    setDraftState('schedule_filter_tab', filterTab);
+  }, [filterTab]);
+
+  useEffect(() => {
+    setDraftState('schedule_search', searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    setDraftState('schedule_subject_filter', selectedSubjectFilter);
+  }, [selectedSubjectFilter]);
+
+  useEffect(() => {
+    setDraftState('schedule_view_mode', viewMode);
+  }, [viewMode]);
+
+  useEffect(() => {
+    setDraftState('schedule_calendar_month', calendarDate.toISOString());
+  }, [calendarDate]);
+
+  useEffect(() => {
+    setDraftState('schedule_selected_date', selectedDateStr);
+  }, [selectedDateStr]);
+
+  useEffect(() => {
+    setDraftState('schedule_calendar_subject', calendarSubjectFilter);
+  }, [calendarSubjectFilter]);
+
+  useEffect(() => {
+    if (
+      isModalOpen ||
+      formTitle.trim() ||
+      formProfessor.trim() ||
+      formHall.trim() ||
+      formNotes.trim()
+    ) {
+      setDraftState<ScheduleFormDraft>('schedule_form_draft', {
+        isModalOpen,
+        formTitle,
+        formSubject,
+        formProfessor,
+        formHall,
+        formDate,
+        formTime,
+        formDayOfWeek,
+        formNotes,
+        formPriority,
+        formNotifEnabled,
+      });
+    } else {
+      clearDraftState('schedule_form_draft');
+    }
+  }, [
+    isModalOpen,
+    formTitle,
+    formSubject,
+    formProfessor,
+    formHall,
+    formDate,
+    formTime,
+    formDayOfWeek,
+    formNotes,
+    formPriority,
+    formNotifEnabled,
+  ]);
 
   const handleRequestNotifPermission = async () => {
     const granted = await NotificationService.requestPermission();
@@ -84,6 +206,7 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
   };
 
   const resetForm = () => {
+    clearDraftState('schedule_form_draft');
     setFormTitle('');
     setFormSubject(SUBJECT_OPTIONS[0]);
     setFormProfessor('');
@@ -1178,7 +1301,10 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
       {/* Add / Edit Lecture Modal */}
       <Modal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          setIsModalOpen(false);
+          resetForm();
+        }}
         maxWidth="lg"
         title={editingLecture ? 'تعديل بيانات المحاضرة' : 'إضافة محاضرة جديدة إلى الجدول'}
         subtitle="توثيق موعد القاعة والمحاضر في الجدول الدراسي"
@@ -1339,7 +1465,10 @@ export const ScheduleSection: React.FC<ScheduleSectionProps> = ({ onBack, openAd
               <div className="pt-4 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    resetForm();
+                  }}
                   className="px-5 py-2.5 rounded-xl bg-[#BCEBFF]/30 hover:bg-[#BCEBFF]/60 text-[#071A3D] font-bold text-xs"
                 >
                   إلغاء

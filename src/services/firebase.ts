@@ -143,6 +143,7 @@ export interface SectionVisibility {
   announcementsBanner: boolean;
   contactFooter: boolean;
   pwaInstallPrompt: boolean;
+  medicalDictionarySection: boolean;
 }
 
 export interface ButtonConfig {
@@ -288,6 +289,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
     announcementsBanner: true,
     contactFooter: true,
     pwaInstallPrompt: true,
+    medicalDictionarySection: true,
   },
   buttons: [
     { id: 'btn-enter', label: 'دخول اللوحة', link: 'main', type: 'primary', visible: true },
@@ -365,6 +367,13 @@ function saveCachedSiteConfig(config: SiteConfig): void {
     console.warn('Failed saving site config to localStorage:', e);
   }
 }
+
+// Warm in-memory caches for instant zero-flicker Back/Forward navigation & scroll restoration
+let memoryCachedArticles: ArticleItem[] | null = null;
+let memoryCachedVideos: VideoItem[] | null = null;
+let memoryCachedCollegeInfo: CollegeInfoData | null = null;
+let memoryCachedSubjects: Subject[] | null = null;
+let memoryCachedStudyResources: StudyResource[] | null = null;
 
 export class FirebaseService {
   // 1. Subscribe to Site Config Real-time Updates with Instant Local Cache
@@ -460,6 +469,9 @@ export class FirebaseService {
 
   // 4. Articles Management
   static subscribeArticles(callback: (articles: ArticleItem[]) => void): () => void {
+    if (memoryCachedArticles) {
+      callback(memoryCachedArticles);
+    }
     const colRef = collection(db, 'articles');
     return onSnapshot(colRef, (snapshot) => {
       const articles: ArticleItem[] = [];
@@ -467,14 +479,12 @@ export class FirebaseService {
         articles.push({ id: docSnap.id, ...docSnap.data() } as ArticleItem);
       });
       articles.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      if (articles.length === 0) {
-        callback(DEFAULT_ARTICLES);
-      } else {
-        callback(articles);
-      }
+      const resolved = articles.length === 0 ? DEFAULT_ARTICLES : articles;
+      memoryCachedArticles = resolved;
+      callback(resolved);
     }, (err) => {
       console.warn('Articles snapshot error, fallback to defaults:', err);
-      callback(DEFAULT_ARTICLES);
+      callback(memoryCachedArticles || DEFAULT_ARTICLES);
     });
   }
 
@@ -507,6 +517,9 @@ export class FirebaseService {
 
   // 5. Video Management
   static subscribeVideos(callback: (videos: VideoItem[]) => void): () => void {
+    if (memoryCachedVideos) {
+      callback(memoryCachedVideos);
+    }
     const colRef = collection(db, 'videos');
     return onSnapshot(colRef, (snapshot) => {
       const videos: VideoItem[] = [];
@@ -514,14 +527,12 @@ export class FirebaseService {
         videos.push({ id: docSnap.id, ...docSnap.data() } as VideoItem);
       });
       videos.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      if (videos.length === 0) {
-        callback(DEFAULT_VIDEOS);
-      } else {
-        callback(videos);
-      }
+      const resolved = videos.length === 0 ? DEFAULT_VIDEOS : videos;
+      memoryCachedVideos = resolved;
+      callback(resolved);
     }, (err) => {
       console.warn('Videos snapshot error, fallback to defaults:', err);
-      callback(DEFAULT_VIDEOS);
+      callback(memoryCachedVideos || DEFAULT_VIDEOS);
     });
   }
 
@@ -581,11 +592,14 @@ export class FirebaseService {
 
   // 6. About College Section Info
   static subscribeCollegeInfo(callback: (data: CollegeInfoData) => void): () => void {
+    if (memoryCachedCollegeInfo) {
+      callback(memoryCachedCollegeInfo);
+    }
     const docRef = doc(db, 'college_info', COLLEGE_INFO_DOC_ID);
     return onSnapshot(docRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as CollegeInfoData;
-        callback({
+        const resolved: CollegeInfoData = {
           title: data.title || COLLEGE_INFO.title,
           tagline: data.tagline || COLLEGE_INFO.tagline,
           image: data.image || COLLEGE_INFO.image,
@@ -595,7 +609,9 @@ export class FirebaseService {
             ? data.survivalTips
             : COLLEGE_INFO.survivalTips.map((t, idx) => ({ id: 'tip-' + idx, ...t })),
           customSections: data.customSections || []
-        });
+        };
+        memoryCachedCollegeInfo = resolved;
+        callback(resolved);
       } else {
         const initialDefault: CollegeInfoData = {
           title: COLLEGE_INFO.title,
@@ -606,12 +622,13 @@ export class FirebaseService {
           survivalTips: COLLEGE_INFO.survivalTips.map((t, idx) => ({ id: 'tip-' + idx, ...t })),
           customSections: []
         };
+        memoryCachedCollegeInfo = initialDefault;
         setDoc(docRef, initialDefault);
         callback(initialDefault);
       }
     }, (err) => {
       console.warn('College info snapshot error:', err);
-      callback({
+      callback(memoryCachedCollegeInfo || {
         title: COLLEGE_INFO.title,
         tagline: COLLEGE_INFO.tagline,
         image: COLLEGE_INFO.image,
@@ -631,6 +648,9 @@ export class FirebaseService {
 
   // 7. Academic Subjects Data
   static subscribeSubjects(callback: (subjects: Subject[]) => void): () => void {
+    if (memoryCachedSubjects) {
+      callback(memoryCachedSubjects);
+    }
     const colRef = collection(db, 'subjects_data');
     return onSnapshot(colRef, (snapshot) => {
       if (!snapshot.empty) {
@@ -638,6 +658,7 @@ export class FirebaseService {
         snapshot.forEach(docSnap => {
           subjects.push({ id: docSnap.id, ...docSnap.data() } as Subject);
         });
+        memoryCachedSubjects = subjects;
         callback(subjects);
       } else {
         // Populate default subjects if empty
@@ -645,11 +666,12 @@ export class FirebaseService {
           const docRef = doc(db, 'subjects_data', sub.id);
           await setDoc(docRef, sub);
         });
+        memoryCachedSubjects = SUBJECTS_DATA;
         callback(SUBJECTS_DATA);
       }
     }, (err) => {
       console.warn('Subjects snapshot error:', err);
-      callback(SUBJECTS_DATA);
+      callback(memoryCachedSubjects || SUBJECTS_DATA);
     });
   }
 
@@ -1029,6 +1051,9 @@ export class FirebaseService {
 
   // 12. Dynamic Study Resources & Digital Library (مصادر الدراسة والمكتبة الرقمية)
   static subscribeStudyResources(callback: (resources: StudyResource[]) => void): () => void {
+    if (memoryCachedStudyResources) {
+      callback(memoryCachedStudyResources);
+    }
     const colRef = collection(db, 'study_resources');
     return onSnapshot(colRef, (snapshot) => {
       if (!snapshot.empty) {
@@ -1053,6 +1078,7 @@ export class FirebaseService {
           } as StudyResource);
         });
         resources.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        memoryCachedStudyResources = resources;
         callback(resources);
       } else {
         // If empty in Firestore, populate default study resources
@@ -1078,11 +1104,12 @@ export class FirebaseService {
             console.warn('Error seeding study resource:', e);
           }
         });
+        memoryCachedStudyResources = STUDY_RESOURCES;
         callback(STUDY_RESOURCES);
       }
     }, (err) => {
       console.warn('Study resources snapshot error, fallback to defaults:', err);
-      callback(STUDY_RESOURCES);
+      callback(memoryCachedStudyResources || STUDY_RESOURCES);
     });
   }
 

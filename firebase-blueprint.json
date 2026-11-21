@@ -204,6 +204,31 @@
         "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
       },
       "required": ["id", "userId", "subjectId", "notes", "completedTopicIds", "updatedAt"]
+    },
+    "medical_terms": {
+      "title": "Medical Terminology Dictionary Entries",
+      "description": "Verified bilingual English-Arabic medical terminology entries with pronunciation, IPA, scientific explanations, and authoritative source citations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Deterministic normalized slug ID" },
+        "term_en": { "type": "string", "minLength": 2, "maxLength": 200, "description": "English medical term" },
+        "term_en_lower": { "type": "string", "minLength": 2, "maxLength": 200, "description": "Lowercase English term for indexed prefix queries" },
+        "term_ar": { "type": "string", "minLength": 2, "maxLength": 200, "description": "Arabic medical equivalent" },
+        "synonyms": { "type": "array", "description": "Alternative English or Arabic terms (max 25)" },
+        "pronunciation": { "type": "string", "maxLength": 200, "description": "Phonetic pronunciation guide" },
+        "ipa": { "type": "string", "maxLength": 200, "description": "International Phonetic Alphabet notation" },
+        "audio_url": { "type": "string", "maxLength": 1000, "pattern": "^https://", "description": "Optional verified pronunciation audio URL" },
+        "english_definition": { "type": "string", "minLength": 10, "maxLength": 3000, "description": "Clear scientific English explanation" },
+        "arabic_definition": { "type": "string", "minLength": 10, "maxLength": 3000, "description": "Accurate scientific Arabic explanation" },
+        "specialty": { "type": "string", "minLength": 2, "maxLength": 100, "description": "Medical specialty category" },
+        "sources": { "type": "array", "description": "Array of verifiable source objects ({ name, url, accessedAt })" },
+        "verification_status": { "type": "string", "enum": ["verified", "needs_review", "draft"], "description": "Editorial verification state" },
+        "last_verified": { "type": "string", "minLength": 4, "maxLength": 30, "description": "Date of last scientific verification" },
+        "search_tokens": { "type": "array", "description": "Normalized bilingual prefix and word tokens for scalable search" },
+        "created_at": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updated_at": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "term_en", "term_en_lower", "term_ar", "synonyms", "pronunciation", "ipa", "english_definition", "arabic_definition", "specialty", "sources", "verification_status", "last_verified", "search_tokens", "created_at", "updated_at"]
     }
   },
   "firestore": {
@@ -218,6 +243,10 @@
     "/study_resources/{resourceId}": {
       "schema": "study_resources",
       "description": "Collection of academic study sources and digital library cards"
+    },
+    "/medical_terms/{termId}": {
+      "schema": "medical_terms",
+      "description": "Publicly readable (verified only), admin-managed bilingual medical terminology index"
     },
     "/users/{userId}": {
       "schema": "users",

@@ -41,6 +41,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ onSuccess, onC
   }, []);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +62,22 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ onSuccess, onC
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleAdminLogin = async () => {
+    if (isGoogleSubmitting) return;
+    setIsGoogleSubmitting(true);
+    setErrorMsg(null);
+    try {
+      const res = await AdminAuthService.loginWithGoogleAdmin();
+      if (res.success) {
+        onSuccess();
+      } else {
+        setErrorMsg(res.error || 'هذا الحساب غير مصرح له بصلاحيات المشرف.');
+      }
+    } finally {
+      setIsGoogleSubmitting(false);
     }
   };
 
@@ -161,7 +178,24 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ onSuccess, onC
           </div>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-slate-100 dark:border-white/10 text-center text-[11px] text-slate-400">
+        {/* Verified Google Admin Login for Firestore Rules */}
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-white/10">
+          <button
+            type="button"
+            onClick={handleGoogleAdminLogin}
+            disabled={isGoogleSubmitting}
+            className="w-full py-2.5 px-4 rounded-2xl bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-[#16958E]/30 text-[#071A3D] dark:text-white font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+          >
+            <ShieldCheck className="w-4 h-4 text-[#16958E]" />
+            <span>
+              {isGoogleSubmitting
+                ? 'جاري التحقق عبر Google...'
+                : 'دخول المشرف الموثّق عبر Google (للتعديل في قاعدة البيانات)'}
+            </span>
+          </button>
+        </div>
+
+        <div className="mt-4 text-center text-[11px] text-slate-400">
           محمية بواسطة Firebase Authentication & Rate Limiting
         </div>
       </div>

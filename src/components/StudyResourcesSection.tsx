@@ -6,6 +6,16 @@ import { FirebaseService } from '../services/firebase';
 import { sanitizeSafeHttpUrl } from '../services/userAccount';
 import { useAuth } from '../contexts/AuthContext';
 import { Modal } from './common/Modal';
+import { getDraftState, setDraftState, clearDraftState } from '../services/navigationState';
+
+interface PersonalResourceDraft {
+  isOpen: boolean;
+  newTitle: string;
+  newUrl: string;
+  newDescription: string;
+  newSubjectTag: string;
+  newCategory: 'book' | 'video' | 'telegram' | 'notes' | 'summary';
+}
 import {
   BookOpen,
   Send,
@@ -43,20 +53,56 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
     openAuthModal,
   } = useAuth();
 
+  const initialPersonalDraft = getDraftState<PersonalResourceDraft | null>(
+    'resources_personal_draft',
+    null
+  );
+
   const [resources, setResources] = useState<StudyResource[]>(STUDY_RESOURCES);
   const [subjects, setSubjects] = useState<Subject[]>(SUBJECTS_DATA);
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filterCategory, setFilterCategory] = useState<string>(() =>
+    getDraftState<string>('resources_filter_category', 'all')
+  );
+  const [searchQuery, setSearchQuery] = useState<string>(() =>
+    getDraftState<string>('resources_search', '')
+  );
   const [resourceError, setResourceError] = useState<string | null>(null);
 
   // Add Personal Study Resource Modal State
-  const [isAddPersonalOpen, setIsAddPersonalOpen] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newUrl, setNewUrl] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [newSubjectTag, setNewSubjectTag] = useState('general');
-  const [newCategory, setNewCategory] = useState<'book' | 'video' | 'telegram' | 'notes' | 'summary'>('notes');
+  const [isAddPersonalOpen, setIsAddPersonalOpen] = useState<boolean>(
+    Boolean(initialPersonalDraft?.isOpen)
+  );
+  const [newTitle, setNewTitle] = useState(initialPersonalDraft?.newTitle || '');
+  const [newUrl, setNewUrl] = useState(initialPersonalDraft?.newUrl || '');
+  const [newDescription, setNewDescription] = useState(initialPersonalDraft?.newDescription || '');
+  const [newSubjectTag, setNewSubjectTag] = useState(initialPersonalDraft?.newSubjectTag || 'general');
+  const [newCategory, setNewCategory] = useState<'book' | 'video' | 'telegram' | 'notes' | 'summary'>(
+    initialPersonalDraft?.newCategory || 'notes'
+  );
   const [savingPersonal, setSavingPersonal] = useState(false);
+
+  useEffect(() => {
+    setDraftState('resources_filter_category', filterCategory);
+  }, [filterCategory]);
+
+  useEffect(() => {
+    setDraftState('resources_search', searchQuery);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (isAddPersonalOpen || newTitle.trim() || newUrl.trim() || newDescription.trim()) {
+      setDraftState<PersonalResourceDraft>('resources_personal_draft', {
+        isOpen: isAddPersonalOpen,
+        newTitle,
+        newUrl,
+        newDescription,
+        newSubjectTag,
+        newCategory,
+      });
+    } else {
+      clearDraftState('resources_personal_draft');
+    }
+  }, [isAddPersonalOpen, newTitle, newUrl, newDescription, newSubjectTag, newCategory]);
 
   useEffect(() => {
     const unsubscribeResources = FirebaseService.subscribeStudyResources((data) => {
@@ -139,6 +185,7 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
         subjectTag: newSubjectTag,
         category: newCategory,
       });
+      clearDraftState('resources_personal_draft');
       setNewTitle('');
       setNewUrl('');
       setNewDescription('');

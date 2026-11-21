@@ -1,4 +1,4 @@
-export type ActivePage = 'landing' | 'main' | 'college' | 'subjects' | 'subject-detail' | 'schedule' | 'resources' | 'articles' | 'videos' | 'gpa' | 'pomodoro';
+export type ActivePage = 'landing' | 'main' | 'college' | 'subjects' | 'subject-detail' | 'schedule' | 'resources' | 'articles' | 'videos' | 'dictionary' | 'gpa' | 'pomodoro';
 
 export type SubjectId = 'anatomy' | 'physiology' | 'biochemistry' | 'microbiology' | 'pathology' | 'pharmacology' | string;
 
@@ -162,3 +162,32 @@ export interface UserSettings {
   activeView: ActivePage;
   selectedSubjectId?: SubjectId;
 }
+
+export type MedicalTermVerificationStatus = 'verified' | 'needs_review' | 'draft';
+
+export interface MedicalTermSource {
+  name: string;
+  url: string;
+  accessedAt?: string;
+}
+
+export interface MedicalTerm {
+  id: string;
+  term_en: string;
+  term_en_lower: string;
+  term_ar: string;
+  synonyms: string[];
+  pronunciation: string;
+  ipa: string;
+  audio_url?: string;
+  english_definition: string;
+  arabic_definition: string;
+  specialty: string;
+  sources: MedicalTermSource[];
+  verification_status: MedicalTermVerificationStatus;
+  last_verified: string;
+  search_tokens: string[];
+  created_at: string;
+  updated_at: string;
+}
+

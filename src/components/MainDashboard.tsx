@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { ActivePage, Lecture } from '../types';
-import { GraduationCap, BookOpen, CalendarCheck, ArrowLeft, Send, Sparkles, Clock, Calendar, Smartphone, Download, FileText, Video, ShieldCheck, LogIn, UserPlus, Sliders, LogOut, Star } from 'lucide-react';
+import { GraduationCap, BookOpen, CalendarCheck, ArrowLeft, Send, Sparkles, Clock, Calendar, Smartphone, Download, FileText, Video, ShieldCheck, LogIn, UserPlus, Sliders, LogOut, Star, Stethoscope } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface MainDashboardProps {
@@ -142,15 +142,15 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         </div>
       )}
 
-      {/* Quick Access Bar for Articles & Videos */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Quick Access Bar for Articles, Videos & Medical Terminology Index */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <motion.div
           whileHover={{ scale: 1.01 }}
           onClick={() => onNavigate('articles')}
           className="p-5 rounded-2xl bg-gradient-to-r from-[#071A3D] to-[#16958E] text-white shadow-md cursor-pointer flex items-center justify-between group"
         >
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-[#BCEBFF]">
+            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-[#BCEBFF] flex-shrink-0">
               <FileText className="w-6 h-6" />
             </div>
             <div>
@@ -158,7 +158,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               <p className="text-xs text-[#BCEBFF]">استعرض أحدث المقالات والإرشادات الطبية والتعليمية</p>
             </div>
           </div>
-          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform flex-shrink-0" />
         </motion.div>
 
         <motion.div
@@ -167,7 +167,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           className="p-5 rounded-2xl bg-gradient-to-r from-[#16958E] to-[#071A3D] text-white shadow-md cursor-pointer flex items-center justify-between group"
         >
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-[#BCEBFF]">
+            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-[#BCEBFF] flex-shrink-0">
               <Video className="w-6 h-6" />
             </div>
             <div>
@@ -175,7 +175,24 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               <p className="text-xs text-[#BCEBFF]">شروحات ومحاضرات فيديو مسجلة مع مشغل تفاعلي</p>
             </div>
           </div>
-          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform flex-shrink-0" />
+        </motion.div>
+
+        <motion.div
+          whileHover={{ scale: 1.01 }}
+          onClick={() => onNavigate('dictionary')}
+          className="p-5 rounded-2xl bg-gradient-to-r from-[#071A3D] via-[#0e2d63] to-[#16958E] text-white shadow-md cursor-pointer flex items-center justify-between group border border-[#BCEBFF]/30"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center text-[#BCEBFF] flex-shrink-0">
+              <Stethoscope className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-extrabold font-tajawal text-base">فهرس المصطلحات الطبية</h4>
+              <p className="text-xs text-[#BCEBFF]">بحث ذكي ثنائي اللغة، نطق صوتي، ومراجع موثقة</p>
+            </div>
+          </div>
+          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform flex-shrink-0" />
         </motion.div>
       </div>
 

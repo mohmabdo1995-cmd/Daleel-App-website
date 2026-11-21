@@ -5,16 +5,36 @@ import { Subject, SubjectId } from '../types';
 import { BookOpen, ArrowLeft, ArrowRight, Search, Sparkles, Activity, HeartPulse, Dna, Bug, Stethoscope, Pill, CheckCircle, FileText, ChevronLeft } from 'lucide-react';
 import { SubjectDetailView } from './SubjectDetailView';
 import { FirebaseService } from '../services/firebase';
+import { getDraftState, setDraftState } from '../services/navigationState';
 
 interface SubjectsSectionProps {
   onBack: () => void;
   initialSelectedId?: SubjectId;
+  onSelectSubject?: (subjectId: SubjectId) => void;
+  onBackFromSubject?: () => void;
 }
 
-export const SubjectsSection: React.FC<SubjectsSectionProps> = ({ onBack, initialSelectedId }) => {
+export const SubjectsSection: React.FC<SubjectsSectionProps> = ({
+  onBack,
+  initialSelectedId,
+  onSelectSubject,
+  onBackFromSubject,
+}) => {
   const [subjectsList, setSubjectsList] = useState<Subject[]>(SUBJECTS_DATA);
-  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(() => {
+    if (!initialSelectedId) return null;
+    return (
+      SUBJECTS_DATA.find((s) => s.id.toLowerCase() === initialSelectedId.toLowerCase()) ||
+      null
+    );
+  });
+  const [searchQuery, setSearchQuery] = useState<string>(() =>
+    getDraftState<string>('subjects_search', '')
+  );
+
+  useEffect(() => {
+    setDraftState('subjects_search', searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
     const unsubscribe = FirebaseService.subscribeSubjects((data) => {
@@ -22,13 +42,19 @@ export const SubjectsSection: React.FC<SubjectsSectionProps> = ({ onBack, initia
       if (initialSelectedId) {
         const found = data.find(s => s.id.toLowerCase() === initialSelectedId.toLowerCase());
         if (found) setSelectedSubject(found);
+      } else {
+        setSelectedSubject(null);
       }
     });
     return () => unsubscribe();
   }, [initialSelectedId]);
 
   useEffect(() => {
-    if (initialSelectedId && subjectsList.length > 0) {
+    if (!initialSelectedId) {
+      setSelectedSubject(null);
+      return;
+    }
+    if (subjectsList.length > 0) {
       const found = subjectsList.find(s => s.id.toLowerCase() === initialSelectedId.toLowerCase());
       if (found) setSelectedSubject(found);
     }
@@ -56,7 +82,13 @@ export const SubjectsSection: React.FC<SubjectsSectionProps> = ({ onBack, initia
     return (
       <SubjectDetailView
         subject={selectedSubject}
-        onBack={() => setSelectedSubject(null)}
+        onBack={() => {
+          if (onBackFromSubject) {
+            onBackFromSubject();
+          } else {
+            setSelectedSubject(null);
+          }
+        }}
       />
     );
   }
@@ -110,7 +142,13 @@ export const SubjectsSection: React.FC<SubjectsSectionProps> = ({ onBack, initia
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: index * 0.08 }}
             whileHover={{ y: -6, scale: 1.01 }}
-            onClick={() => setSelectedSubject(subject)}
+            onClick={() => {
+              if (onSelectSubject) {
+                onSelectSubject(subject.id);
+              } else {
+                setSelectedSubject(subject);
+              }
+            }}
             className="group cursor-pointer rounded-3xl bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 overflow-hidden hover:border-[#16958E] shadow-sm transition-all duration-300 flex flex-col justify-between"
           >
             <div>
