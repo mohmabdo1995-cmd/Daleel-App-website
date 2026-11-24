@@ -59,6 +59,10 @@ export const StudyResourcesManager: React.FC<StudyResourcesManagerProps> = ({ on
   const [deletingItem, setDeletingItem] = useState<StudyResource | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Seed Confirmation Modal State
+  const [isSeedConfirmOpen, setIsSeedConfirmOpen] = useState(false);
+  const [isSeedingDefaults, setIsSeedingDefaults] = useState(false);
+
   // Card Preview Modal State
   const [previewItem, setPreviewItem] = useState<StudyResource | null>(null);
 
@@ -293,13 +297,20 @@ export const StudyResourcesManager: React.FC<StudyResourcesManagerProps> = ({ on
   };
 
   // Seed / Reset to Default Resources
-  const handleSeedDefaults = async () => {
-    if (!window.confirm('هل تريد استرجاع المصادر الدراسية الافتراضية المعتمدة؟ لن يتم حذف المصادر المضافة يدوياً.')) return;
+  const handleSeedDefaults = () => {
+    setIsSeedConfirmOpen(true);
+  };
+
+  const handleConfirmSeedDefaults = async () => {
+    setIsSeedingDefaults(true);
     try {
       await FirebaseService.seedDefaultStudyResources();
       notify('تمت استعادة المصادر النموذجية بنجاح 📖');
+      setIsSeedConfirmOpen(false);
     } catch (err) {
       notify('حدث خطأ أثناء استعادة المصادر الافتراضية', 'error');
+    } finally {
+      setIsSeedingDefaults(false);
     }
   };
 
@@ -1117,6 +1128,48 @@ export const StudyResourcesManager: React.FC<StudyResourcesManagerProps> = ({ on
                   className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
                 >
                   إغلاق المعاينة
+                </button>
+              </div>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
+
+      {/* 8. SEED DEFAULTS CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {isSeedConfirmOpen && (
+          <Modal
+            isOpen={isSeedConfirmOpen}
+            onClose={() => !isSeedingDefaults && setIsSeedConfirmOpen(false)}
+            title="استعادة المصادر الدراسية الافتراضية"
+          >
+            <div className="space-y-4 text-right">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                هل تريد استرجاع المصادر الدراسية الافتراضية المعتمدة؟ لن يتم حذف المصادر المضافة يدوياً.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isSeedingDefaults}
+                  onClick={() => setIsSeedConfirmOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold hover:bg-slate-200 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  disabled={isSeedingDefaults}
+                  onClick={handleConfirmSeedDefaults}
+                  className="px-5 py-2 rounded-xl bg-[#16958E] hover:bg-[#127771] text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isSeedingDefaults ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري الاستعادة...</span>
+                    </>
+                  ) : (
+                    <span>تأكيد الاستعادة</span>
+                  )}
                 </button>
               </div>
             </div>

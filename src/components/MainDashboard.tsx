@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { ActivePage, Lecture } from '../types';
-import { GraduationCap, BookOpen, CalendarCheck, ArrowLeft, Send, Sparkles, Clock, Calendar, Smartphone, Download, FileText, Video, ShieldCheck, LogIn, UserPlus, Sliders, LogOut, Star, Stethoscope } from 'lucide-react';
+import { GraduationCap, BookOpen, CalendarCheck, ArrowLeft, Send, Sparkles, Clock, Calendar, Smartphone, Download, FileText, Video, ShieldCheck, LogIn, UserPlus, Sliders, LogOut, Star, Stethoscope, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface MainDashboardProps {
@@ -489,13 +489,24 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('open-pwa-install'))}
-            className="p-3 rounded-2xl bg-[#16958E] hover:bg-[#127d77] text-white flex items-center justify-between text-xs font-bold transition-all shadow-md shadow-[#16958E]/20 active:scale-95 cursor-pointer"
-          >
-            <span>تثبيت التطبيق الآن</span>
-            <Download className="w-4 h-4 text-[#BCEBFF]" />
-          </button>
+          <div className="space-y-2.5">
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('open-pwa-install'))}
+              className="w-full p-3 rounded-2xl bg-[#16958E] hover:bg-[#127d77] text-white flex items-center justify-between text-xs font-bold transition-all shadow-md shadow-[#16958E]/20 active:scale-95 cursor-pointer"
+            >
+              <span>تثبيت التطبيق الآن</span>
+              <Download className="w-4 h-4 text-[#BCEBFF]" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('innova')}
+              className="w-full p-3 rounded-2xl bg-[#BCEBFF]/30 hover:bg-[#BCEBFF]/55 dark:bg-[#09204a] dark:hover:bg-[#16958E]/25 border border-[#16958E]/35 text-[#071A3D] dark:text-white flex items-center justify-between text-xs font-bold transition-all active:scale-95 cursor-pointer"
+            >
+              <span>جمعية إنوفا INNOVA</span>
+              <Users className="w-4 h-4 text-[#16958E] dark:text-[#BCEBFF]" />
+            </button>
+          </div>
         </div>
 
       </div>

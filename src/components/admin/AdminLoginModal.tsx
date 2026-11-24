@@ -1,69 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Lock, AlertTriangle, ArrowRight, Eye, EyeOff, KeyRound, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { ShieldCheck, Lock, X, LogOut, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { AdminAuthService } from '../../services/adminAuth';
 import { Modal } from '../common/Modal';
 
 interface AdminLoginModalProps {
+  currentSignedInEmail?: string | null;
+  authErrorMessage?: string | null;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ onSuccess, onCancel }) => {
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
+  currentSignedInEmail,
+  authErrorMessage,
+  onSuccess,
+  onCancel,
+}) => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isLockedOut, setIsLockedOut] = useState(false);
-  const [lockoutTimer, setLockoutTimer] = useState(0);
-
-  useEffect(() => {
-    const status = AdminAuthService.getLockoutStatus();
-    setIsLockedOut(status.isLockedOut);
-    setLockoutTimer(status.secondsLeft);
-
-    let interval: any = null;
-    if (status.isLockedOut && status.secondsLeft > 0) {
-      interval = setInterval(() => {
-        setLockoutTimer(prev => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            setIsLockedOut(false);
-            setErrorMsg(null);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, []);
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!password || isSubmitting) return;
-
-    setIsSubmitting(true);
-    try {
-      const result = await AdminAuthService.login(password);
-      if (result.success) {
-        setErrorMsg(null);
-        onSuccess();
-      } else {
-        setErrorMsg(result.error || 'خطأ في كلمة المرور');
-        if (result.lockoutSeconds && result.lockoutSeconds > 0) {
-          setIsLockedOut(true);
-          setLockoutTimer(result.lockoutSeconds);
-        }
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const displayedError = errorMsg || authErrorMessage || null;
 
   const handleGoogleAdminLogin = async () => {
     if (isGoogleSubmitting) return;
@@ -79,6 +35,16 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ onSuccess, onC
     } finally {
       setIsGoogleSubmitting(false);
     }
+  };
+
+  const handleSwitchAccount = async () => {
+    setErrorMsg(null);
+    await handleGoogleAdminLogin();
+  };
+
+  const handleSignOutCurrent = async () => {
+    await AdminAuthService.logout();
+    setErrorMsg(null);
   };
 
   return (
@@ -108,95 +74,85 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({ onSuccess, onC
           <h2 className="text-2xl font-extrabold font-tajawal text-[#071A3D] dark:text-white">
             تسجيل الدخول للوحة التحكم
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            أدخل كلمة المرور الخاصة بالمسؤول للوصول إلى إدارة المحتوى
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+            التحقق الموثّق عبر حساب Google المصرح له لضمان استمرار الجلسة وحماية قاعدة البيانات
           </p>
         </div>
 
-        {/* Lockout Warning */}
-        {isLockedOut && (
-          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs mb-5 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-            <div>
-              <span className="font-bold block mb-0.5">تم القفل المؤقت لحماية النظام</span>
-              <span>يرجى الانتظار {lockoutTimer} ثانية حتى تتمكن من محاولة الدخول مجدداً.</span>
+        {/* Active non-admin account notice */}
+        {currentSignedInEmail && (
+          <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs mb-4 space-y-2">
+            <div className="font-bold flex items-center justify-between gap-2">
+              <span>الحساب النشط حالياً:</span>
+              <span className="font-mono text-[11px] bg-white/80 dark:bg-black/30 px-2 py-0.5 rounded-lg truncate max-w-[200px]">
+                {currentSignedInEmail}
+              </span>
             </div>
+            <p className="text-[11px] leading-relaxed">
+              هذا الحساب غير مصرح له بصلاحيات المشرف. يمكنك التبديل مباشرة إلى حساب المشرف المعتمد.
+            </p>
           </div>
         )}
 
         {/* Error Message */}
-        {errorMsg && !isLockedOut && (
-          <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs mb-5 font-bold flex items-center gap-2">
-            <Lock className="w-4 h-4 flex-shrink-0" />
-            <span>{errorMsg}</span>
+        {displayedError && (
+          <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs mb-5 font-bold flex items-start gap-2">
+            <Lock className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{displayedError}</span>
           </div>
         )}
 
-        {/* Form */}
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-[#071A3D] dark:text-slate-300 mb-1.5">
-              كلمة المرور:
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                disabled={isLockedOut}
-                placeholder="أدخل كلمة المرور"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-10 py-3 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#16958E]/30 text-[#071A3D] dark:text-white text-sm focus:ring-2 focus:ring-[#16958E] outline-none transition-all disabled:opacity-50"
-              />
-              <KeyRound className="w-5 h-5 text-slate-400 absolute right-3 top-3.5" />
+        {/* Primary Verified Google Auth CTA */}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={currentSignedInEmail ? handleSwitchAccount : handleGoogleAdminLogin}
+            disabled={isGoogleSubmitting}
+            className="w-full py-3.5 px-4 rounded-2xl bg-[#071A3D] hover:bg-[#16958E] text-white font-bold text-xs shadow-lg shadow-[#071A3D]/25 transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-60"
+          >
+            {isGoogleSubmitting ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+              </svg>
+            )}
+            <span>
+              {isGoogleSubmitting
+                ? 'جاري التحقق من صلاحية المشرف...'
+                : currentSignedInEmail
+                ? 'تبديل الحساب والدخول بحساب المشرف'
+                : 'تسجيل دخول المشرف الموثّق عبر Google'}
+            </span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            {currentSignedInEmail && (
               <button
                 type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute left-3 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                title={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                onClick={handleSignOutCurrent}
+                className="flex-1 py-2.5 px-3 rounded-2xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                <LogOut className="w-3.5 h-3.5" />
+                <span>خروج من الحساب</span>
               </button>
-            </div>
-          </div>
-
-          <div className="pt-2 flex items-center gap-3">
+            )}
             <button
               type="button"
               onClick={onCancel}
-              className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-[#071A3D] dark:text-white font-bold text-xs transition-all cursor-pointer"
+              className="flex-1 py-2.5 px-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-[#071A3D] dark:text-white font-bold text-xs transition-all cursor-pointer"
             >
-              إلغاء
-            </button>
-            <button
-              type="submit"
-              disabled={isLockedOut || !password || isSubmitting}
-              className="flex-1 py-3 rounded-2xl bg-[#071A3D] hover:bg-[#16958E] text-white font-bold text-xs shadow-lg shadow-[#071A3D]/25 transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <span>{isSubmitting ? 'جاري التحقق...' : 'دخول اللوحة'}</span>
-              <ArrowRight className="w-4 h-4 rotate-180" />
+              العودة للموقع
             </button>
           </div>
-        </form>
-
-        {/* Verified Google Admin Login for Firestore Rules */}
-        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-white/10">
-          <button
-            type="button"
-            onClick={handleGoogleAdminLogin}
-            disabled={isGoogleSubmitting}
-            className="w-full py-2.5 px-4 rounded-2xl bg-slate-50 hover:bg-slate-100 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-[#16958E]/30 text-[#071A3D] dark:text-white font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-          >
-            <ShieldCheck className="w-4 h-4 text-[#16958E]" />
-            <span>
-              {isGoogleSubmitting
-                ? 'جاري التحقق عبر Google...'
-                : 'دخول المشرف الموثّق عبر Google (للتعديل في قاعدة البيانات)'}
-            </span>
-          </button>
         </div>
 
-        <div className="mt-4 text-center text-[11px] text-slate-400">
-          محمية بواسطة Firebase Authentication & Rate Limiting
+        <div className="mt-5 p-3 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-white/10 text-[11px] text-slate-500 dark:text-slate-300 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-[#16958E] flex-shrink-0" />
+          <span>تُحفظ جلسة المشرف تلقائياً عبر Firebase Persistent Auth وتبقى نشطة عند التحديث أو إعادة الفتح.</span>
         </div>
       </div>
     </Modal>

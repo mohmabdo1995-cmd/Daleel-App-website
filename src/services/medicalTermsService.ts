@@ -6,7 +6,6 @@ import {
   getDoc,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   setDoc,
@@ -22,6 +21,9 @@ import {
   db,
   FirebaseService,
   handleFirestoreError,
+  isFirestoreQuotaError,
+  isFirestoreQuotaExceeded,
+  markFirestoreQuotaExceeded,
   OperationType,
 } from './firebase';
 import {
@@ -37,6 +39,8 @@ import {
   normalizeEnglish,
   slugifyMedicalTermId,
 } from './medicalSearch';
+import { DataSyncService } from './dataSyncService';
+import { CacheSourceKind, FirestoreAuditMetrics, SmartCache } from './smartCache';
 
 const MEDICAL_TERMS_COLLECTION = 'medical_terms';
 const LOCAL_CACHE_KEY = 'daleelak_medical_terms_cache_v1';
@@ -253,12 +257,60 @@ function normalizeFirestoreTermDoc(id: string, raw: Record<string, unknown>): Me
   };
 }
 
+function mergeCatalogWithDelta(
+  deltaItems: MedicalTerm[],
+  deletedIds: Set<string>,
+  verifiedOnly: boolean,
+  extraAdminItems: MedicalTerm[] = []
+): MedicalTerm[] {
+  const map = new Map<string, MedicalTerm>();
+  for (const seed of MEDICAL_TERMS_SEED) {
+    if (!deletedIds.has(seed.id)) {
+      map.set(seed.id, seed);
+    }
+  }
+  for (const item of deltaItems) {
+    if (item?.id) {
+      map.set(item.id, item);
+    }
+  }
+  for (const extra of extraAdminItems) {
+    if (extra?.id) {
+      map.set(extra.id, extra);
+    }
+  }
+
+  const result: MedicalTerm[] = [];
+  for (const term of map.values()) {
+    if (verifiedOnly && term.verification_status !== 'verified') continue;
+    result.push(term);
+  }
+  result.sort((a, b) => (a.term_en_lower || '').localeCompare(b.term_en_lower || ''));
+  return result;
+}
+
+let medicalDeltaRegistered = false;
+function ensureMedicalDeltaRegistered(): void {
+  if (medicalDeltaRegistered) return;
+  medicalDeltaRegistered = true;
+  DataSyncService.registerCollection<MedicalTerm[]>({
+    key: 'medical_terms_delta',
+    firestoreCollection: MEDICAL_TERMS_COLLECTION,
+    defaultValue: [],
+    isArray: true,
+    updatedAtField: 'updated_at',
+    normalizeItem: (id, raw) => normalizeFirestoreTermDoc(id, raw),
+  });
+}
+
+ensureMedicalDeltaRegistered();
+
 function saveLocalTermsCache(terms: MedicalTerm[]): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(
       LOCAL_CACHE_KEY,
-      JSON.stringify({ ts: Date.now(), items: terms.slice(0, 250) })
+      JSON.stringify({ ts: Date.now(), items: terms.slice(0, 120) })
     );
   } catch {
     // ignore storage quota errors
@@ -292,6 +344,7 @@ export class MedicalTermsService {
 
     try {
       const adminDoc = await getDoc(doc(db, 'admins', user.uid));
+      FirestoreAuditMetrics.recordGetDoc('admins', 1, false);
       return adminDoc.exists();
     } catch {
       return false;
@@ -353,57 +406,57 @@ export class MedicalTermsService {
     pageSize = 60,
     cursor?: DocumentSnapshot | null
   ): Promise<PaginatedTermsResult> {
-    const colRef = collection(db, MEDICAL_TERMS_COLLECTION);
-    try {
-      const q = cursor
-        ? query(
-            colRef,
-            where('verification_status', '==', 'verified'),
-            orderBy('term_en_lower'),
-            startAfter(cursor),
-            limit(pageSize)
-          )
-        : query(
-            colRef,
-            where('verification_status', '==', 'verified'),
-            orderBy('term_en_lower'),
-            limit(pageSize)
-          );
+    if (!isFirestoreQuotaExceeded()) {
+      const colRef = collection(db, MEDICAL_TERMS_COLLECTION);
+      try {
+        const q = cursor
+          ? query(
+              colRef,
+              where('verification_status', '==', 'verified'),
+              orderBy('term_en_lower'),
+              startAfter(cursor),
+              limit(pageSize)
+            )
+          : query(
+              colRef,
+              where('verification_status', '==', 'verified'),
+              orderBy('term_en_lower'),
+              limit(pageSize)
+            );
 
-      const snapshot = await getDocs(q);
-      const firestoreItems = snapshot.docs.map((d) =>
-        normalizeFirestoreTermDoc(d.id, d.data() as Record<string, unknown>)
-      );
+        const snapshot = await getDocs(q);
+        FirestoreAuditMetrics.recordGetDocs(MEDICAL_TERMS_COLLECTION, snapshot.size);
+        const firestoreItems = snapshot.docs.map((d) =>
+          normalizeFirestoreTermDoc(d.id, d.data() as Record<string, unknown>)
+        );
 
-      if (firestoreItems.length > 0) {
-        const lastDoc = snapshot.docs[snapshot.docs.length - 1] || null;
-        if (!cursor) {
-          saveLocalTermsCache(firestoreItems);
+        if (firestoreItems.length > 0) {
+          const lastDoc = snapshot.docs[snapshot.docs.length - 1] || null;
+          if (!cursor) {
+            saveLocalTermsCache(firestoreItems);
+          }
+          return {
+            items: firestoreItems,
+            lastCursor: lastDoc,
+            hasMore: snapshot.docs.length === pageSize,
+            fromFirestore: true,
+          };
         }
-        return {
-          items: firestoreItems,
-          lastCursor: lastDoc,
-          hasMore: snapshot.docs.length === pageSize,
-          fromFirestore: true,
-        };
+      } catch (err) {
+        if (isFirestoreQuotaError(err)) {
+          markFirestoreQuotaExceeded();
+        }
+        console.warn('Firestore paginated fetch fallback to verified curated index:', err);
       }
-    } catch (err) {
-      console.warn('Firestore paginated fetch fallback to verified curated index:', err);
     }
 
-    // Fallback before admin initial seed or when offline
+    // Fallback before admin initial seed or when offline/quota-limited
     if (!cursor) {
       const cached = loadLocalTermsCache();
-      if (cached && cached.length > 0) {
-        return {
-          items: cached,
-          lastCursor: null,
-          hasMore: false,
-          fromFirestore: false,
-        };
-      }
+      const fallbackItems =
+        cached && cached.length >= MEDICAL_TERMS_SEED.length ? cached : MEDICAL_TERMS_SEED;
       return {
-        items: MEDICAL_TERMS_SEED,
+        items: fallbackItems,
         lastCursor: null,
         hasMore: false,
         fromFirestore: false,
@@ -414,12 +467,12 @@ export class MedicalTermsService {
   }
 
   /**
-   * Targeted server-side token query for large Firestore catalogs with TTL caching.
+   * Targeted server-side token query ONLY as fallback when local 3,950+ index has 0 matches.
    * Only queries `verification_status == 'verified'` so Firestore rules enforce public safety.
    */
   static async queryPublicTermsByTokenRemote(rawQuery: string): Promise<MedicalTerm[]> {
     const trimmed = (rawQuery || '').trim();
-    if (trimmed.length < 2) return [];
+    if (trimmed.length < 3) return [];
 
     const isAr = containsArabic(trimmed);
     const norm = isAr ? normalizeArabic(trimmed) : normalizeEnglish(trimmed);
@@ -432,6 +485,10 @@ export class MedicalTermsService {
       return cached.items;
     }
 
+    if (isFirestoreQuotaExceeded()) {
+      return [];
+    }
+
     try {
       const colRef = collection(db, MEDICAL_TERMS_COLLECTION);
       const tokenKey = firstWord.slice(0, 10);
@@ -442,133 +499,187 @@ export class MedicalTermsService {
         limit(40)
       );
       const snap = await getDocs(q);
+      FirestoreAuditMetrics.recordGetDocs(MEDICAL_TERMS_COLLECTION, snap.size);
       const items = snap.docs.map((d) =>
         normalizeFirestoreTermDoc(d.id, d.data() as Record<string, unknown>)
       );
       remoteSearchCache.set(cacheKey, { items, ts: Date.now() });
       return items;
     } catch (err) {
+      if (isFirestoreQuotaError(err)) {
+        markFirestoreQuotaExceeded();
+      }
       console.warn('Remote token lookup failed gracefully:', err);
       return [];
     }
   }
 
   /**
-   * Fetches a single verified term by slug ID from Firestore or local verified index.
+   * Fetches a single verified term by slug ID: checks IndexedDB delta + local seed first (0 reads),
+   * and falls back to a single `getDoc` ONLY if missing locally.
    */
   static async getPublicTermById(termId: string): Promise<MedicalTerm | null> {
     const cleanId = slugifyMedicalTermId(termId);
+    ensureMedicalDeltaRegistered();
+
+    const cachedDelta = await SmartCache.getCollection<MedicalTerm[]>('medical_terms_delta');
+    const fromDelta = cachedDelta?.data?.find((t) => t.id === cleanId);
+    if (fromDelta && fromDelta.verification_status === 'verified') {
+      return fromDelta;
+    }
+
+    const fromSeed = MEDICAL_TERMS_SEED.find((t) => t.id === cleanId);
+    if (fromSeed) {
+      return fromSeed;
+    }
+
+    if (isFirestoreQuotaExceeded()) return null;
+
     try {
       const snap = await getDoc(doc(db, MEDICAL_TERMS_COLLECTION, cleanId));
+      FirestoreAuditMetrics.recordGetDoc(MEDICAL_TERMS_COLLECTION, 1, false);
       if (snap.exists()) {
         const parsed = normalizeFirestoreTermDoc(snap.id, snap.data() as Record<string, unknown>);
         if (parsed.verification_status === 'verified') return parsed;
       }
-    } catch {
-      // fall through to curated index
+    } catch (err) {
+      if (isFirestoreQuotaError(err)) markFirestoreQuotaExceeded();
     }
-    return MEDICAL_TERMS_SEED.find((t) => t.id === cleanId) || null;
+    return null;
   }
 
   /**
-   * Real-time admin subscription across ALL verification statuses (`verified`, `needs_review`, `draft`)
-   * when authenticated as a verified Firebase Admin; safely subscribes to `verified` terms only when
-   * browsing with local passcode so Firestore rules never reject the listener.
+   * Primary Student Dictionary subscription:
+   * Uses bundled 3,950+ verified terms + IndexedDB `medical_terms_delta` synced via single-read
+   * `site_config/sync_manifest` check (0 `medical_terms` reads when unchanged!).
+   */
+  static subscribeMergedVerifiedCatalog(
+    callback: (items: MedicalTerm[], source: CacheSourceKind) => void
+  ): () => void {
+    ensureMedicalDeltaRegistered();
+    return DataSyncService.subscribeCollection<MedicalTerm[]>(
+      'medical_terms_delta',
+      async (deltaItems, source) => {
+        const deletedIds = await DataSyncService.getCachedDeletedIds('medical_terms_delta');
+        const merged = mergeCatalogWithDelta(
+          Array.isArray(deltaItems) ? deltaItems : [],
+          deletedIds,
+          true
+        );
+        callback(merged, source);
+      }
+    );
+  }
+
+  /**
+   * Zero-read summary for Admin Overview card using cached delta + bundled index.
+   */
+  static async getCachedAdminTermsSummary(): Promise<{
+    total: number;
+    needsReview: number;
+    hasDeltaCache: boolean;
+  }> {
+    ensureMedicalDeltaRegistered();
+    const rec = await SmartCache.getCollection<MedicalTerm[]>('medical_terms_delta');
+    const deletedIds = await DataSyncService.getCachedDeletedIds('medical_terms_delta');
+    const merged = mergeCatalogWithDelta(
+      Array.isArray(rec?.data) ? rec!.data : [],
+      deletedIds,
+      false
+    );
+    return {
+      total: merged.length,
+      needsReview: merged.filter((t) => t.verification_status === 'needs_review').length,
+      hasDeltaCache: Boolean(rec),
+    };
+  }
+
+  /**
+   * Admin catalog subscription (Lazy-loaded ONLY when MedicalTermsManager mounts):
+   * - Hydrates immediately from bundled seed + IndexedDB `medical_terms_delta` (0 reads!)
+   * - When authenticated as verified Firebase Admin, performs ONE bounded `getDocs` ONLY for
+   *   `needs_review` / `draft` documents (limit 200) instead of reading all 3,950+ verified docs!
    */
   static subscribeAdminMedicalTerms(
     callback: (items: MedicalTerm[], fromFirestore: boolean) => void,
     onError?: (err: unknown) => void
   ): () => void {
-    let activeSnapshotUnsub: (() => void) | null = null;
+    ensureMedicalDeltaRegistered();
     let isDisposed = false;
+    let latestDelta: MedicalTerm[] = [];
+    let latestExtraAdmin: MedicalTerm[] = [];
+    let hasRemoteData = false;
 
-    const attachListener = async () => {
+    const emitMerged = async () => {
       if (isDisposed) return;
-      if (activeSnapshotUnsub) {
-        activeSnapshotUnsub();
-        activeSnapshotUnsub = null;
+      const deletedIds = await DataSyncService.getCachedDeletedIds('medical_terms_delta');
+      const merged = mergeCatalogWithDelta(latestDelta, deletedIds, false, latestExtraAdmin);
+      callback(merged, hasRemoteData);
+    };
+
+    const unsubDelta = DataSyncService.subscribeCollection<MedicalTerm[]>(
+      'medical_terms_delta',
+      (deltaItems, source) => {
+        latestDelta = Array.isArray(deltaItems) ? deltaItems : [];
+        if (source === 'cloud') hasRemoteData = true;
+        void emitMerged();
       }
+    );
 
+    const fetchAdminReviewQueueOnce = async () => {
+      if (isDisposed || isFirestoreQuotaExceeded()) return;
       const isAdminSession = await this.isVerifiedAdminFirebaseSession();
-      if (isDisposed) return;
+      if (isDisposed || !isAdminSession) return;
 
-      const colRef = collection(db, MEDICAL_TERMS_COLLECTION);
-      const q = isAdminSession
-        ? query(colRef, orderBy('term_en_lower'))
-        : query(
-            colRef,
-            where('verification_status', '==', 'verified'),
-            orderBy('term_en_lower')
-          );
-
-      activeSnapshotUnsub = onSnapshot(
-        q,
-        (snapshot) => {
-          const items = snapshot.docs.map((d) =>
-            normalizeFirestoreTermDoc(d.id, d.data() as Record<string, unknown>)
-          );
-          callback(items, true);
-        },
-        (err) => {
-          console.warn('Medical terms admin listener fallback:', err);
-          if (onError) onError(err);
+      try {
+        const colRef = collection(db, MEDICAL_TERMS_COLLECTION);
+        const q = query(
+          colRef,
+          where('verification_status', 'in', ['needs_review', 'draft']),
+          limit(200)
+        );
+        const snap = await getDocs(q);
+        FirestoreAuditMetrics.recordGetDocs(MEDICAL_TERMS_COLLECTION, snap.size);
+        latestExtraAdmin = snap.docs.map((d) =>
+          normalizeFirestoreTermDoc(d.id, d.data() as Record<string, unknown>)
+        );
+        hasRemoteData = true;
+        await emitMerged();
+      } catch (err) {
+        if (isFirestoreQuotaError(err)) {
+          markFirestoreQuotaExceeded();
         }
-      );
+        onError?.(err);
+      }
     };
 
     const unsubAuth = onAuthStateChanged(auth, () => {
-      attachListener();
+      void fetchAdminReviewQueueOnce();
     });
 
     return () => {
       isDisposed = true;
+      unsubDelta();
       unsubAuth();
-      if (activeSnapshotUnsub) {
-        activeSnapshotUnsub();
-        activeSnapshotUnsub = null;
-      }
     };
   }
 
   /**
-   * Real-time public listener for verified terms (used alongside paginated/cached queries so
-   * Admin edits reflect immediately across open sessions without full-page reload).
+   * Backward-compatible public subscription backed by IndexedDB + bundled seed (0 redundant 250-doc reads).
    */
   static subscribePublicVerifiedTerms(
     callback: (items: MedicalTerm[], hasRemoteData: boolean) => void
   ): () => void {
-    const colRef = collection(db, MEDICAL_TERMS_COLLECTION);
-    const q = query(
-      colRef,
-      where('verification_status', '==', 'verified'),
-      orderBy('term_en_lower'),
-      limit(250)
-    );
-
-    return onSnapshot(
-      q,
-      (snapshot) => {
-        if (snapshot.empty) {
-          callback(MEDICAL_TERMS_SEED, false);
-          return;
-        }
-        const firestoreItems = snapshot.docs.map((d) =>
-          normalizeFirestoreTermDoc(d.id, d.data() as Record<string, unknown>)
-        );
-        saveLocalTermsCache(firestoreItems);
-        callback(firestoreItems, true);
-      },
-      (err) => {
-        console.warn('Public verified medical terms listener fallback:', err);
-        callback(loadLocalTermsCache() || MEDICAL_TERMS_SEED, false);
-      }
-    );
+    return this.subscribeMergedVerifiedCatalog((items, source) => {
+      callback(items, source === 'cloud');
+    });
   }
 
   /**
-   * Creates a new medical term in Firestore (Admin Only, duplicate-safe).
+   * Creates a new medical term in Firestore (Admin Only, duplicate-safe) -> updates IndexedDB + sync_manifest.
    */
   static async addMedicalTerm(input: MedicalTermDraftInput): Promise<MedicalTerm> {
+    ensureMedicalDeltaRegistered();
     const validation = sanitizeAndValidateMedicalTerm(input);
     if (!validation.valid) {
       const errs = 'errors' in validation ? validation.errors : {};
@@ -582,12 +693,17 @@ export class MedicalTermsService {
 
     try {
       const existing = await getDoc(docRef);
+      FirestoreAuditMetrics.recordGetDoc(MEDICAL_TERMS_COLLECTION, 1, false);
       if (existing.exists()) {
         throw new Error(`المصطلح "${term.term_en}" موجود مسبقاً (المعرف: ${term.id}). يرجى تعديله بدلاً من تكراره.`);
       }
       await setDoc(docRef, term);
       remoteSearchCache.clear();
-      await FirebaseService.addAdminLog('إضافة مصطلح طبي', `${term.term_en} (${term.term_ar}) [${term.verification_status}]`);
+      await DataSyncService.recordConfirmedMutation('medical_terms_delta', {
+        type: 'upsert',
+        item: term,
+      });
+      FirebaseService.addAdminLog('إضافة مصطلح طبي', `${term.term_en} (${term.term_ar}) [${term.verification_status}]`).catch(() => {});
       return term;
     } catch (err) {
       if (err instanceof Error && err.message.includes('موجود مسبقاً')) {
@@ -598,14 +714,14 @@ export class MedicalTermsService {
   }
 
   /**
-   * Updates an existing medical term in Firestore (Admin Only).
-   * Preserves immutable `id` and `created_at`.
+   * Updates an existing medical term in Firestore (Admin Only) -> updates IndexedDB + sync_manifest.
    */
   static async updateMedicalTerm(
     termId: string,
     input: MedicalTermDraftInput,
     existingCreatedAt?: string
   ): Promise<MedicalTerm> {
+    ensureMedicalDeltaRegistered();
     const validation = sanitizeAndValidateMedicalTerm({ ...input, id: termId }, existingCreatedAt);
     if (!validation.valid) {
       const errs = 'errors' in validation ? validation.errors : {};
@@ -618,36 +734,47 @@ export class MedicalTermsService {
     const path = `${MEDICAL_TERMS_COLLECTION}/${termId}`;
 
     try {
+      let persistedTerm = term;
       const snap = await getDoc(docRef);
+      FirestoreAuditMetrics.recordGetDoc(MEDICAL_TERMS_COLLECTION, 1, false);
       if (!snap.exists()) {
         await setDoc(docRef, term);
       } else {
         const snapData = snap.data() as Record<string, unknown>;
         const preservedCreatedAt = String(snapData.created_at || term.created_at);
-        const updatePayload: MedicalTerm = {
+        persistedTerm = {
           ...term,
           id: termId,
           created_at: preservedCreatedAt,
         };
-        await updateDoc(docRef, updatePayload as unknown as Record<string, unknown>);
+        await updateDoc(docRef, persistedTerm as unknown as Record<string, unknown>);
       }
       remoteSearchCache.clear();
-      await FirebaseService.addAdminLog('تحديث مصطلح طبي', `${term.term_en} [${term.verification_status}]`);
-      return term;
+      await DataSyncService.recordConfirmedMutation('medical_terms_delta', {
+        type: 'upsert',
+        item: persistedTerm,
+      });
+      FirebaseService.addAdminLog('تحديث مصطلح طبي', `${persistedTerm.term_en} [${persistedTerm.verification_status}]`).catch(() => {});
+      return persistedTerm;
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, path);
     }
   }
 
   /**
-   * Deletes a medical term permanently from Firestore (Admin Only).
+   * Deletes a medical term permanently from Firestore (Admin Only) -> records tombstone in sync_manifest & IndexedDB.
    */
   static async deleteMedicalTerm(termId: string, label?: string): Promise<void> {
+    ensureMedicalDeltaRegistered();
     const path = `${MEDICAL_TERMS_COLLECTION}/${termId}`;
     try {
       await deleteDoc(doc(db, MEDICAL_TERMS_COLLECTION, termId));
       remoteSearchCache.clear();
-      await FirebaseService.addAdminLog('حذف مصطلح طبي', label ? `${label} (${termId})` : termId);
+      await DataSyncService.recordConfirmedMutation('medical_terms_delta', {
+        type: 'delete',
+        id: termId,
+      });
+      FirebaseService.addAdminLog('حذف مصطلح طبي', label ? `${label} (${termId})` : termId).catch(() => {});
     } catch (err) {
       handleFirestoreError(err, OperationType.DELETE, path);
     }
@@ -660,6 +787,7 @@ export class MedicalTermsService {
   static async seedBaselineMedicalTerms(
     existingMap: Map<string, MedicalTerm>
   ): Promise<{ inserted: number; skipped: number }> {
+    ensureMedicalDeltaRegistered();
     const toInsert = MEDICAL_TERMS_SEED.filter((t) => !existingMap.has(t.id));
     const skipped = MEDICAL_TERMS_SEED.length - toInsert.length;
 
@@ -678,10 +806,15 @@ export class MedicalTermsService {
         await batch.commit();
       }
       remoteSearchCache.clear();
-      await FirebaseService.addAdminLog(
+      const cachedDelta = await SmartCache.getCollection<MedicalTerm[]>('medical_terms_delta');
+      await DataSyncService.recordConfirmedMutation('medical_terms_delta', {
+        type: 'replace',
+        data: Array.isArray(cachedDelta?.data) ? cachedDelta!.data : [],
+      });
+      FirebaseService.addAdminLog(
         'مزامنة قاعدة المصطلحات الطبية',
         `تمت إضافة ${toInsert.length} مصطلحاً موثقاً (تخطي ${skipped} موجوداً مسبقاً)`
-      );
+      ).catch(() => {});
       return { inserted: toInsert.length, skipped };
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, MEDICAL_TERMS_COLLECTION);
@@ -832,10 +965,21 @@ export class MedicalTermsService {
         await batch.commit();
       }
       remoteSearchCache.clear();
-      await FirebaseService.addAdminLog(
+      const cachedDelta = await SmartCache.getCollection<MedicalTerm[]>('medical_terms_delta');
+      const deltaMap = new Map<string, MedicalTerm>(
+        (Array.isArray(cachedDelta?.data) ? cachedDelta!.data : []).map((t) => [t.id, t])
+      );
+      for (const row of actionable) {
+        if (row.term) deltaMap.set(row.term.id, row.term);
+      }
+      await DataSyncService.recordConfirmedMutation('medical_terms_delta', {
+        type: 'replace',
+        data: Array.from(deltaMap.values()),
+      });
+      FirebaseService.addAdminLog(
         'استيراد دفعة مصطلحات طبية',
         `جديد: ${created}، تحديث: ${updated}، تخطي مكرر: ${skipped}`
-      );
+      ).catch(() => {});
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, MEDICAL_TERMS_COLLECTION);
     }

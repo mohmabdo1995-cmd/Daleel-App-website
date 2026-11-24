@@ -76,6 +76,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
                   فهرس المصطلحات الطبية
                 </button>
               </li>
+              <li>
+                <button onClick={() => onNavigate('innova')} className="hover:text-[#16958E] transition-colors">
+                  جمعية إنوفا INNOVA
+                </button>
+              </li>
             </ul>
           </div>
 

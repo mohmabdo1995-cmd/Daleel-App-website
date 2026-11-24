@@ -16,6 +16,7 @@ export interface NavRouteState {
   articleId?: string;
   videoId?: string;
   termId?: string;
+  innovaContentId?: string;
   modal?: NavModalType;
   isAdmin?: boolean;
   scrollY: number;
@@ -37,6 +38,7 @@ const VALID_PAGES: ActivePage[] = [
   'articles',
   'videos',
   'dictionary',
+  'innova',
   'gpa',
   'pomodoro',
 ];
@@ -144,6 +146,7 @@ export function buildRouteKey(state: Partial<NavRouteState>): string {
     state.articleId ? `art:${state.articleId}` : '',
     state.videoId ? `vid:${state.videoId}` : '',
     state.termId ? `term:${state.termId}` : '',
+    state.innovaContentId ? `innova:${state.innovaContentId}` : '',
   ].filter(Boolean);
   return parts.join('|');
 }
@@ -182,8 +185,8 @@ export function persistActiveSessionSnapshot(state: NavRouteState): void {
 }
 
 export function isSameNavDestination(
-  a: Pick<NavRouteState, 'page' | 'subjectId' | 'articleId' | 'videoId' | 'termId' | 'modal' | 'isAdmin'>,
-  b: Pick<NavRouteState, 'page' | 'subjectId' | 'articleId' | 'videoId' | 'termId' | 'modal' | 'isAdmin'>
+  a: Pick<NavRouteState, 'page' | 'subjectId' | 'articleId' | 'videoId' | 'termId' | 'innovaContentId' | 'modal' | 'isAdmin'>,
+  b: Pick<NavRouteState, 'page' | 'subjectId' | 'articleId' | 'videoId' | 'termId' | 'innovaContentId' | 'modal' | 'isAdmin'>
 ): boolean {
   return (
     Boolean(a.isAdmin) === Boolean(b.isAdmin) &&
@@ -192,6 +195,7 @@ export function isSameNavDestination(
     (a.articleId || undefined) === (b.articleId || undefined) &&
     (a.videoId || undefined) === (b.videoId || undefined) &&
     (a.termId || undefined) === (b.termId || undefined) &&
+    (a.innovaContentId || undefined) === (b.innovaContentId || undefined) &&
     (a.modal || null) === (b.modal || null)
   );
 }
@@ -223,6 +227,7 @@ export function buildUrlFromRoute(state: Partial<NavRouteState>): string {
   params.delete('article');
   params.delete('video');
   params.delete('term');
+  params.delete('innovaItem');
 
   const page = state.page || 'landing';
   if (page !== 'landing') {
@@ -239,6 +244,9 @@ export function buildUrlFromRoute(state: Partial<NavRouteState>): string {
   }
   if (state.termId && page === 'dictionary') {
     params.set('term', state.termId);
+  }
+  if (state.innovaContentId && page === 'innova') {
+    params.set('innovaItem', state.innovaContentId);
   }
 
   const queryStr = params.toString();
@@ -284,6 +292,7 @@ export function parseRouteFromLocation(): NavRouteState {
   const rawArticle = params.get('article') || undefined;
   const rawVideo = params.get('video') || undefined;
   const rawTerm = params.get('term') || undefined;
+  const rawInnovaItem = params.get('innovaItem') || undefined;
 
   let page: ActivePage = rawView && VALID_PAGES.includes(rawView) ? rawView : 'landing';
   if (page === 'subjects' && rawSubject) {
@@ -291,6 +300,9 @@ export function parseRouteFromLocation(): NavRouteState {
   }
   if (!rawView && rawTerm) {
     page = 'dictionary';
+  }
+  if (!rawView && rawInnovaItem) {
+    page = 'innova';
   }
 
   // 3. Check if browser reloaded or recovered a killed background WebView process
@@ -314,7 +326,7 @@ export function parseRouteFromLocation(): NavRouteState {
       : [];
   const navType = navEntries[0]?.type;
 
-  const isBareRoot = !isAdmin && !rawView && !rawSubject && !rawArticle && !rawVideo && !rawTerm;
+  const isBareRoot = !isAdmin && !rawView && !rawSubject && !rawArticle && !rawVideo && !rawTerm && !rawInnovaItem;
   if (
     isBareRoot &&
     savedSessionSnapshot &&
@@ -337,6 +349,7 @@ export function parseRouteFromLocation(): NavRouteState {
     articleId: rawArticle,
     videoId: rawVideo,
     termId: rawTerm,
+    innovaContentId: rawInnovaItem,
     modal: null,
     isAdmin,
     scrollY: 0,

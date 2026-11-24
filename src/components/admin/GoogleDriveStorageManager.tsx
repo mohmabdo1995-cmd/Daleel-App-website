@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Cloud,
   HardDrive,
@@ -15,9 +15,16 @@ import {
   LogOut,
   Sparkles,
   Layers,
-  Eye
+  Eye,
+  KeyRound,
+  Unlink
 } from 'lucide-react';
-import { GoogleDriveService, DriveFileItem, DriveStorageQuota } from '../../services/googleDrive';
+import {
+  GoogleDriveService,
+  DriveFileItem,
+  DriveStorageQuota,
+  DriveConnectionSnapshot
+} from '../../services/googleDrive';
 import { Modal } from '../common/Modal';
 import { FirebaseService } from '../../services/firebase';
 
@@ -26,9 +33,10 @@ interface GoogleDriveStorageManagerProps {
 }
 
 export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps> = ({ onNotify }) => {
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionSnapshot, setConnectionSnapshot] = useState<DriveConnectionSnapshot>(() =>
+    GoogleDriveService.getConnectionSnapshot()
+  );
   const [isConnecting, setIsConnecting] = useState(false);
-  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [quota, setQuota] = useState<DriveStorageQuota | null>(null);
   const [files, setFiles] = useState<DriveFileItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -46,62 +54,67 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
   const [previewItem, setPreviewItem] = useState<DriveFileItem | null>(null);
   const [deletingItem, setDeletingItem] = useState<DriveFileItem | null>(null);
 
-  useEffect(() => {
-    // Check initial auth
-    const unsubscribe = GoogleDriveService.initAuth(
-      (user) => {
-        setIsConnected(true);
-        setCurrentUserEmail(user.email);
-        loadQuotaAndFiles();
-      },
-      () => {
-        setIsConnected(false);
-        setCurrentUserEmail(null);
-      }
-    );
+  const isConnected = connectionSnapshot.status === 'connected';
+  const needsReauth = connectionSnapshot.status === 'linked_needs_reauth';
+  const isRestoring = connectionSnapshot.status === 'restoring';
+  const currentUserEmail = connectionSnapshot.connectedEmail;
 
-    // Initial files load from Firestore (always available even if not currently logged into Drive)
-    loadFilesFromFirestore();
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, []);
-
-  const loadQuotaAndFiles = async () => {
+  const loadQuotaAndFiles = useCallback(async (forceManifestCheck = false) => {
     setIsLoadingFiles(true);
     try {
-      const quotaData = await GoogleDriveService.getStorageQuota();
-      if (quotaData) setQuota(quotaData);
+      if (GoogleDriveService.isConnected()) {
+        const quotaData = await GoogleDriveService.getStorageQuota();
+        if (quotaData) setQuota(quotaData);
+      } else {
+        setQuota(null);
+      }
 
-      const items = await GoogleDriveService.getFiles();
+      const items = await GoogleDriveService.getFiles(forceManifestCheck);
       setFiles(items);
     } catch (e) {
       console.error(e);
     } finally {
       setIsLoadingFiles(false);
     }
-  };
+  }, []);
 
-  const loadFilesFromFirestore = async () => {
-    try {
-      const items = await GoogleDriveService.getFiles();
-      setFiles(items);
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  useEffect(() => {
+    const unsubscribe = GoogleDriveService.subscribeConnectionState((snap) => {
+      setConnectionSnapshot(snap);
+      if (snap.status === 'connected') {
+        void GoogleDriveService.getStorageQuota().then((q) => {
+          if (q) setQuota(q);
+        });
+      } else {
+        setQuota(null);
+      }
+    });
 
-  const handleConnect = async () => {
+    void GoogleDriveService.restoreConnectionState().finally(() => {
+      void loadQuotaAndFiles(false);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [loadQuotaAndFiles]);
+
+  const handleConnect = async (isRenewal = false) => {
     setIsConnecting(true);
     try {
-      const { user } = await GoogleDriveService.connectGoogleDrive();
-      setIsConnected(true);
-      setCurrentUserEmail(user.email);
-      if (onNotify) onNotify('تم ربط حساب Google Drive بنجاح!', 'success');
-      await loadQuotaAndFiles();
-    } catch (err: any) {
-      if (onNotify) onNotify(err.message || 'فشل الاتصال بـ Google Drive', 'error');
+      const { email } = await GoogleDriveService.connectGoogleDrive({ isRenewal });
+      if (onNotify) {
+        onNotify(
+          isRenewal
+            ? `تم تجديد تصريح Google Drive للحساب (${email}) بنجاح!`
+            : `تم ربط حساب Google Drive (${email}) بنجاح!`,
+          'success'
+        );
+      }
+      await loadQuotaAndFiles(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل الاتصال بـ Google Drive';
+      if (onNotify) onNotify(msg, 'error');
     } finally {
       setIsConnecting(false);
     }
@@ -109,10 +122,8 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
 
   const handleDisconnect = async () => {
     await GoogleDriveService.disconnect();
-    setIsConnected(false);
-    setCurrentUserEmail(null);
     setQuota(null);
-    if (onNotify) onNotify('تم قطع الاتصال بحساب Google Drive', 'success');
+    if (onNotify) onNotify('تم قطع الاتصال بحساب Google Drive بنجاح (بقيت ملفات المنصة محفوظة)', 'success');
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,7 +131,6 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
       const file = e.target.files[0];
       setSelectedFile(file);
 
-      // Guess category
       if (file.type.startsWith('video/')) setUploadCategory('video');
       else if (file.type === 'application/pdf') setUploadCategory('pdf');
       else if (file.type.startsWith('image/')) setUploadCategory('image');
@@ -133,7 +143,14 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
     if (!selectedFile) return;
 
     if (!isConnected) {
-      if (onNotify) onNotify('يرجى ربط حساب Google Drive أولاً للمتابعة', 'error');
+      if (onNotify) {
+        onNotify(
+          needsReauth
+            ? 'الحساب مربوط — يرجى الضغط على "تجديد تصريح Google Drive الآن" أولاً للمتابعة'
+            : 'يرجى ربط حساب Google Drive أولاً للمتابعة',
+          'error'
+        );
+      }
       return;
     }
 
@@ -147,7 +164,6 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
         subject: uploadSubject
       });
 
-      // If requested, synchronize to Public Video Library in Firebase
       if (uploadCategory === 'video' && syncToVideoLibrary) {
         setUploadProgress('جاري النشر في مكتبة الشروحات المرئية للطلاب...');
         await FirebaseService.addVideo({
@@ -161,12 +177,13 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
         });
       }
 
-      if (onNotify) onNotify(`تم رفع "${uploadedItem.name}" وإتاحته للطلاب بنجاح!`, 'success');
+      if (onNotify) onNotify(`تم رفع "${uploadedItem.name}" وحفظه في قاعدة البيانات بنجاح!`, 'success');
 
       setSelectedFile(null);
-      await loadQuotaAndFiles();
-    } catch (err: any) {
-      if (onNotify) onNotify(err.message || 'حدث خطأ أثناء رفع الملف', 'error');
+      await loadQuotaAndFiles(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء رفع الملف أو حفظ بياناته';
+      if (onNotify) onNotify(msg, 'error');
     } finally {
       setIsUploading(false);
       setUploadProgress(null);
@@ -187,9 +204,10 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
       setFiles((prev) => prev.filter((f) => f.id !== deletingItem.id));
       if (onNotify) onNotify('تم حذف الملف من Google Drive وقاعدة البيانات', 'success');
       setDeletingItem(null);
-      if (isConnected) loadQuotaAndFiles();
-    } catch (err: any) {
-      if (onNotify) onNotify(err.message || 'فشل حذف الملف', 'error');
+      if (isConnected) void loadQuotaAndFiles(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'فشل حذف الملف';
+      if (onNotify) onNotify(msg, 'error');
     }
   };
 
@@ -206,34 +224,96 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
             إدارة وسائط وملفات الكلية السحابية
           </h2>
           <p className="text-xs text-slate-200 max-w-xl leading-relaxed">
-            ارفع محاضرات الفيديو بصيغة MP4 وملفات الـ PDF مباشرة إلى حساب Google Drive الخاص بك بدون أي تكاليف سيرفرات، مع تحويلها تلقائياً إلى روابط مشاهدة وتنزيل عامة ومباشرة للطلاب دون أن يُطلب منهم تسجيل الدخول.
+            ارفع محاضرات الفيديو بصيغة MP4 وملفات الـ PDF مباشرة إلى حساب Google Drive الخاص بك بدون أي تكاليف سيرفرات، مع بقاء جلسة المشرف محمية ومستقلة تماماً.
           </p>
         </div>
 
-        {/* Connection Action */}
-        <div className="flex-shrink-0">
-          {isConnected ? (
-            <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-center space-y-2 min-w-[220px]">
+        {/* 4-State Decoupled Connection Card */}
+        <div className="flex-shrink-0 w-full md:w-auto">
+          {isRestoring ? (
+            <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-center space-y-2 min-w-[240px]">
+              <div className="flex items-center justify-center gap-2 text-xs font-bold text-[#BCEBFF]">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>جاري التحقق من اتصال Google Drive...</span>
+              </div>
+              {currentUserEmail && (
+                <p className="text-[11px] font-mono text-white/80 truncate max-w-[220px] mx-auto">
+                  {currentUserEmail}
+                </p>
+              )}
+            </div>
+          ) : isConnected ? (
+            <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-center space-y-2.5 min-w-[240px]">
               <div className="flex items-center justify-center gap-2 text-xs font-bold text-emerald-300">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span>متصل بالسحابة</span>
+                <span>متصل بالسحابة وجاهز للرفع</span>
               </div>
-              <p className="text-xs font-mono text-white/90 truncate max-w-[200px]" title={currentUserEmail || ''}>
+              <p className="text-xs font-mono text-white/95 truncate max-w-[220px] mx-auto" title={currentUserEmail || ''}>
                 {currentUserEmail}
               </p>
-              <button
-                type="button"
-                onClick={handleDisconnect}
-                className="w-full py-1.5 px-3 rounded-xl bg-white/15 hover:bg-rose-600/80 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>تبديل الحساب</span>
-              </button>
+              {connectionSnapshot.folderName && (
+                <p className="text-[10px] text-[#BCEBFF] truncate max-w-[220px] mx-auto">
+                  المجلد: {connectionSnapshot.folderName}
+                </p>
+              )}
+              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleConnect(false)}
+                  disabled={isConnecting}
+                  className="py-1.5 px-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>تبديل الحساب</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  disabled={isConnecting}
+                  className="py-1.5 px-2.5 rounded-xl bg-rose-500/30 hover:bg-rose-600/90 text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <Unlink className="w-3 h-3" />
+                  <span>قطع الاتصال</span>
+                </button>
+              </div>
+            </div>
+          ) : needsReauth ? (
+            <div className="p-4 rounded-2xl bg-amber-500/20 backdrop-blur-md border border-amber-300/40 text-center space-y-2.5 min-w-[260px] max-w-[300px]">
+              <div className="flex items-center justify-center gap-2 text-xs font-bold text-amber-200">
+                <KeyRound className="w-4 h-4 text-amber-300 flex-shrink-0" />
+                <span>الحساب مربوط — يتطلب تجديد التصريح</span>
+              </div>
+              <p className="text-[11px] font-mono text-white/95 truncate" title={currentUserEmail || ''}>
+                {currentUserEmail}
+              </p>
+              <p className="text-[10px] text-amber-100 leading-relaxed">
+                لأسباب أمنية لا يُخزّن رمز الجلسة بعد إعادة التحميل. جدّد تصريح الجلسة بضغطة واحدة لرفع ملفات جديدة.
+              </p>
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleConnect(true)}
+                  disabled={isConnecting}
+                  className="w-full py-2 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-[#071A3D] text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>{isConnecting ? 'جاري التجديد...' : 'تجديد تصريح Google Drive الآن'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  disabled={isConnecting}
+                  className="w-full py-1.5 px-3 rounded-xl bg-white/10 hover:bg-rose-600/80 text-white text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <LogOut className="w-3 h-3" />
+                  <span>قطع الاتصال</span>
+                </button>
+              </div>
             </div>
           ) : (
             <button
               type="button"
-              onClick={handleConnect}
+              onClick={() => handleConnect(false)}
               disabled={isConnecting}
               className="px-6 py-3.5 rounded-2xl bg-white hover:bg-slate-100 text-[#071A3D] font-extrabold text-xs shadow-xl transition-all flex items-center gap-3 cursor-pointer group disabled:opacity-50"
             >
@@ -243,11 +323,19 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
               </svg>
-              <span>{isConnecting ? 'جاري المصادقة...' : 'ربط حساب Google Drive'}</span>
+              <span>{isConnecting ? 'جاري المصادقة...' : 'ربط حساب Google Drive (15GB)'}</span>
             </button>
           )}
         </div>
       </div>
+
+      {/* Live Error Notice from Connection Snapshot */}
+      {connectionSnapshot.error && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-500/30 flex items-center gap-3 text-xs text-rose-700 dark:text-rose-200 font-bold">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-500" />
+          <span>{connectionSnapshot.error}</span>
+        </div>
+      )}
 
       {/* Storage Quota Card */}
       {isConnected && quota && (
@@ -262,7 +350,6 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
             </div>
           </div>
 
-          {/* Progress bar */}
           <div className="w-full h-3 bg-slate-100 dark:bg-white/10 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all duration-500 ${
@@ -274,7 +361,7 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
 
           <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
             <span>المساحة المتبقية المجانية: <strong className="text-emerald-600 dark:text-emerald-400 font-mono">{quota.freeFormatted}</strong></span>
-            <span>مجلد المنصة: <strong className="text-[#071A3D] dark:text-white">دليلك الجامعي - الوسائط والمحاضرات</strong></span>
+            <span>مجلد المنصة: <strong className="text-[#071A3D] dark:text-white">{connectionSnapshot.folderName}</strong></span>
           </div>
         </div>
       )}

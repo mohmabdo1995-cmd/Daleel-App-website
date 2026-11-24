@@ -10,6 +10,7 @@ const PRECACHE_ASSETS = [
   '/index.html',
   '/manifest.json',
   '/assets/aistudio/______________42663aaf.svg',
+  '/assets/innova-logo.svg',
   '/icon.svg',
   '/favicon.png',
   '/apple-touch-icon.png',

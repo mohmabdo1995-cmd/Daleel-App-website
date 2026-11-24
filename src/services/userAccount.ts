@@ -24,8 +24,17 @@ import {
   authPersistenceReady,
   db,
   handleFirestoreError,
+  isFirestoreQuotaError,
+  isFirestoreQuotaExceeded,
+  markFirestoreQuotaExceeded,
   OperationType,
 } from './firebase';
+import {
+  estimateByteSize,
+  FirestoreAuditMetrics,
+  isCacheRecordFresh,
+  SmartCache,
+} from './smartCache';
 import {
   GpaCourse,
   Lecture,
@@ -47,10 +56,91 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
 };
 
 const REDIRECT_PENDING_KEY = 'daleelak_google_redirect_pending_v1';
+const USER_WORKSPACE_CACHE_PREFIX = 'daleelak_user_workspace_v1_';
+const USER_WORKSPACE_IDB_PREFIX = 'user_workspace_';
+const USER_WORKSPACE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+export const FIRESTORE_QUOTA_AR_MESSAGE =
+  'تم بلوغ الحد اليومي المجاني لقراءات قاعدة البيانات السحابية (Firestore) مؤقتاً؛ يتم استخدام النسخة المحفوظة محلياً وستعود المزامنة تلقائياً غداً أو عند ترقية الخطة.';
+
+export interface CachedUserWorkspace {
+  profile?: UserProfile;
+  lectures?: Lecture[];
+  gpaCourses?: GpaCourse[];
+  personalResources?: PersonalStudyResource[];
+  subjectProgressMap?: Record<string, SubjectStudyProgress>;
+  updatedAt?: string;
+}
+
+export function loadCachedUserWorkspace(uid: string): CachedUserWorkspace | null {
+  if (typeof window === 'undefined' || !uid) return null;
+  try {
+    const raw = localStorage.getItem(`${USER_WORKSPACE_CACHE_PREFIX}${uid}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedUserWorkspace;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadCachedUserWorkspaceFromIdb(
+  uid: string
+): Promise<{ workspace: CachedUserWorkspace | null; isFresh: boolean }> {
+  if (!uid) return { workspace: null, isFresh: false };
+  const idbRec = await SmartCache.getCollection<CachedUserWorkspace>(`${USER_WORKSPACE_IDB_PREFIX}${uid}`);
+  if (idbRec?.data) {
+    return {
+      workspace: idbRec.data,
+      isFresh: isCacheRecordFresh(idbRec),
+    };
+  }
+  const lsFallback = loadCachedUserWorkspace(uid);
+  return { workspace: lsFallback, isFresh: false };
+}
+
+export function saveCachedUserWorkspace(uid: string, partial: Partial<CachedUserWorkspace>): void {
+  if (typeof window === 'undefined' || !uid) return;
+  try {
+    const existing = loadCachedUserWorkspace(uid) || {};
+    const nowIso = new Date().toISOString();
+    const merged: CachedUserWorkspace = {
+      ...existing,
+      ...partial,
+      updatedAt: nowIso,
+    };
+    localStorage.setItem(`${USER_WORKSPACE_CACHE_PREFIX}${uid}`, JSON.stringify(merged));
+
+    const itemCount =
+      (merged.lectures?.length || 0) +
+      (merged.gpaCourses?.length || 0) +
+      (merged.personalResources?.length || 0) +
+      Object.keys(merged.subjectProgressMap || {}).length +
+      (merged.profile ? 1 : 0);
+
+    void SmartCache.setCollection({
+      key: `${USER_WORKSPACE_IDB_PREFIX}${uid}`,
+      data: merged,
+      version: 1,
+      lastSyncAt: nowIso,
+      lastCheckedAt: nowIso,
+      expiresAt: Date.now() + USER_WORKSPACE_TTL_MS,
+      source: 'cloud',
+      itemCount,
+      hasFullSnapshot: true,
+      byteSizeApprox: estimateByteSize(merged),
+    });
+  } catch {
+    // ignore storage quota errors
+  }
+}
 
 // In-flight deduplication locks so concurrent auth events never race on profile creation
 let activeGoogleAuthPromise: Promise<GoogleOAuthFlowResult> | null = null;
-const inFlightEnsureProfileMap = new Map<string, Promise<{ profile: UserProfile; isNewUser: boolean }>>();
+const inFlightEnsureProfileMap = new Map<
+  string,
+  Promise<{ profile: UserProfile; isNewUser: boolean; fromQuotaFallback?: boolean }>
+>();
 
 export interface GoogleOAuthFlowResult {
   status: 'authenticated' | 'redirecting';
@@ -173,6 +263,9 @@ export function mapFirebaseAuthErrorToArabic(err: unknown): string {
   if (code === 'auth/internal-error') {
     return 'حدث خطأ داخلي في خدمة المصادقة أو إعدادات OAuth. تحقق من اتصال الشبكة وإعدادات النطاقات المصرح بها.';
   }
+  if (isFirestoreQuotaError(err)) {
+    return FIRESTORE_QUOTA_AR_MESSAGE;
+  }
   if (msg.includes('in-app-webview')) {
     return 'متصفحات التطبيقات المدمجة (مثل تيليجرام أو فيسبوك) قد تمنع دخول Google. يرجى فتح الرابط في متصفح Chrome أو Safari لإتمام تسجيل الدخول.';
   }
@@ -210,6 +303,14 @@ function buildNewUserProfile(user: User): UserProfile {
     updatedAt: now,
     lastLoginAt: now,
   };
+}
+
+export function buildFallbackUserProfile(user: User): UserProfile {
+  const cached = loadCachedUserWorkspace(user.uid)?.profile;
+  if (cached && cached.uid === user.uid) {
+    return normalizeUserProfile(cached, user);
+  }
+  return buildNewUserProfile(user);
 }
 
 function normalizeUserProfile(raw: Partial<UserProfile>, user: User): UserProfile {
@@ -344,7 +445,7 @@ export class UserAccountService {
     if (!result || !result.user || result.user.isAnonymous) {
       return null;
     }
-    const ensured = await this.ensureUserProfile(result.user);
+    const ensured = await this.ensureUserProfile(result.user, { forceRefresh: true });
     return {
       user: result.user,
       profile: ensured.profile,
@@ -372,7 +473,7 @@ export class UserAccountService {
 
       try {
         const result = await signInWithPopup(auth, provider);
-        const ensured = await this.ensureUserProfile(result.user);
+        const ensured = await this.ensureUserProfile(result.user, { forceRefresh: true });
         return {
           status: 'authenticated',
           user: result.user,
@@ -423,24 +524,58 @@ export class UserAccountService {
   }
 
   /**
-   * Ensure user document exists in Firestore without racing or overwriting existing user data.
+   * Ensure user document exists in Firestore without racing or redundant reads on reload.
+   * Uses IndexedDB workspace cache when fresh (<15m) unless `forceRefresh` is passed (login/redirect).
    */
   static async ensureUserProfile(
-    user: User
-  ): Promise<{ profile: UserProfile; isNewUser: boolean }> {
+    user: User,
+    options?: { forceRefresh?: boolean }
+  ): Promise<{ profile: UserProfile; isNewUser: boolean; fromQuotaFallback?: boolean }> {
     const existingPromise = inFlightEnsureProfileMap.get(user.uid);
     if (existingPromise) {
       return existingPromise;
     }
 
-    const task = (async (): Promise<{ profile: UserProfile; isNewUser: boolean }> => {
+    const task = (async (): Promise<{
+      profile: UserProfile;
+      isNewUser: boolean;
+      fromQuotaFallback?: boolean;
+    }> => {
+      if (!options?.forceRefresh) {
+        const { workspace, isFresh } = await loadCachedUserWorkspaceFromIdb(user.uid);
+        if (isFresh && workspace?.profile?.uid === user.uid) {
+          FirestoreAuditMetrics.recordCacheHit();
+          return {
+            profile: normalizeUserProfile(workspace.profile, user),
+            isNewUser: false,
+          };
+        }
+      }
+
+      if (isFirestoreQuotaExceeded()) {
+        return {
+          profile: buildFallbackUserProfile(user),
+          isNewUser: false,
+          fromQuotaFallback: true,
+        };
+      }
+
       const userPath = `users/${user.uid}`;
       const userRef = doc(db, 'users', user.uid);
 
       let snap;
       try {
         snap = await getDoc(userRef);
+        FirestoreAuditMetrics.recordGetDoc('users', 1, false);
       } catch (err) {
+        if (isFirestoreQuotaError(err)) {
+          markFirestoreQuotaExceeded();
+          return {
+            profile: buildFallbackUserProfile(user),
+            isNewUser: false,
+            fromQuotaFallback: true,
+          };
+        }
         handleFirestoreError(err, OperationType.GET, userPath);
       }
 
@@ -448,7 +583,18 @@ export class UserAccountService {
         const newProfile = buildNewUserProfile(user);
         try {
           await setDoc(userRef, newProfile);
+          FirestoreAuditMetrics.recordWriteConfirmed();
+          saveCachedUserWorkspace(user.uid, { profile: newProfile });
         } catch (err) {
+          if (isFirestoreQuotaError(err)) {
+            markFirestoreQuotaExceeded();
+            saveCachedUserWorkspace(user.uid, { profile: newProfile });
+            return {
+              profile: newProfile,
+              isNewUser: true,
+              fromQuotaFallback: true,
+            };
+          }
           handleFirestoreError(err, OperationType.CREATE, userPath);
         }
         return { profile: newProfile, isNewUser: true };
@@ -457,23 +603,32 @@ export class UserAccountService {
       const raw = snap.data() as Partial<UserProfile>;
       const existingProfile = normalizeUserProfile(raw, user);
       const now = new Date().toISOString();
+      const lastLoginMs = raw.lastLoginAt ? new Date(raw.lastLoginAt).getTime() : 0;
+      const shouldUpdateLastLogin =
+        Boolean(options?.forceRefresh) ||
+        !Number.isFinite(lastLoginMs) ||
+        Date.now() - lastLoginMs > 30 * 60 * 1000 ||
+        Boolean(!raw.photoURL && user.photoURL);
 
-      // Safely update lastLoginAt (and fill empty photoURL if Google added one) without overwriting user edits
-      try {
-        const updatePayload: Record<string, string> = {
-          lastLoginAt: now,
-          updatedAt: now,
-        };
-        if (!raw.photoURL && user.photoURL) {
-          updatePayload.photoURL = user.photoURL.slice(0, 1000);
+      if (shouldUpdateLastLogin) {
+        try {
+          const updatePayload: Record<string, string> = {
+            lastLoginAt: now,
+            updatedAt: now,
+          };
+          if (!raw.photoURL && user.photoURL) {
+            updatePayload.photoURL = user.photoURL.slice(0, 1000);
+          }
+          await updateDoc(userRef, updatePayload);
+          FirestoreAuditMetrics.recordWriteConfirmed();
+          existingProfile.lastLoginAt = now;
+          existingProfile.updatedAt = now;
+        } catch {
+          // Non-fatal metadata update if offline or schema-restricted
         }
-        await updateDoc(userRef, updatePayload);
-        existingProfile.lastLoginAt = now;
-        existingProfile.updatedAt = now;
-      } catch {
-        // Non-fatal metadata update if offline or schema-restricted
       }
 
+      saveCachedUserWorkspace(user.uid, { profile: existingProfile });
       return {
         profile: existingProfile,
         isNewUser: false,
@@ -486,6 +641,93 @@ export class UserAccountService {
     } finally {
       inFlightEnsureProfileMap.delete(user.uid);
     }
+  }
+
+  /**
+   * IndexedDB-first sync of all 4 user workspace subcollections using bounded `getDocs`
+   * ONLY when cache is missing/expired (eliminates continuous 5-listener overhead on reload).
+   */
+  static async syncUserWorkspaceOnce(
+    uid: string,
+    options?: { forceRefresh?: boolean }
+  ): Promise<{
+    lectures: Lecture[];
+    gpaCourses: GpaCourse[];
+    personalResources: PersonalStudyResource[];
+    subjectProgressMap: Record<string, SubjectStudyProgress>;
+    fromCache: boolean;
+  }> {
+    const { workspace, isFresh } = await loadCachedUserWorkspaceFromIdb(uid);
+    const hasCompleteCache =
+      Boolean(workspace) &&
+      Array.isArray(workspace?.lectures) &&
+      Array.isArray(workspace?.gpaCourses) &&
+      Array.isArray(workspace?.personalResources) &&
+      Boolean(workspace?.subjectProgressMap);
+
+    if (!options?.forceRefresh && hasCompleteCache && isFresh) {
+      FirestoreAuditMetrics.recordCacheHit();
+      return {
+        lectures: workspace!.lectures!,
+        gpaCourses: workspace!.gpaCourses!,
+        personalResources: workspace!.personalResources!,
+        subjectProgressMap: workspace!.subjectProgressMap!,
+        fromCache: true,
+      };
+    }
+
+    if (isFirestoreQuotaExceeded() || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
+      return {
+        lectures: workspace?.lectures || [],
+        gpaCourses: workspace?.gpaCourses || [],
+        personalResources: workspace?.personalResources || [],
+        subjectProgressMap: workspace?.subjectProgressMap || {},
+        fromCache: true,
+      };
+    }
+
+    const [lecSnap, gpaSnap, resSnap, progSnap] = await Promise.all([
+      getDocs(query(collection(db, 'users', uid, 'lectures'), where('userId', '==', uid))),
+      getDocs(query(collection(db, 'users', uid, 'gpa_courses'), where('userId', '==', uid))),
+      getDocs(query(collection(db, 'users', uid, 'personal_resources'), where('userId', '==', uid))),
+      getDocs(query(collection(db, 'users', uid, 'subject_progress'), where('userId', '==', uid))),
+    ]);
+
+    FirestoreAuditMetrics.recordGetDocs('users_lectures', lecSnap.size);
+    FirestoreAuditMetrics.recordGetDocs('users_gpa_courses', gpaSnap.size);
+    FirestoreAuditMetrics.recordGetDocs('users_personal_resources', resSnap.size);
+    FirestoreAuditMetrics.recordGetDocs('users_subject_progress', progSnap.size);
+
+    const lectures: Lecture[] = lecSnap.docs
+      .map((d) => ({ ...(d.data() as Lecture), id: d.id }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+    const gpaCourses: GpaCourse[] = gpaSnap.docs.map((d) => ({ ...(d.data() as GpaCourse), id: d.id }));
+
+    const personalResources: PersonalStudyResource[] = resSnap.docs
+      .map((d) => ({ ...(d.data() as PersonalStudyResource), id: d.id }))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+    const subjectProgressMap: Record<string, SubjectStudyProgress> = {};
+    progSnap.forEach((docSnap) => {
+      const data = docSnap.data() as SubjectStudyProgress;
+      subjectProgressMap[data.subjectId || docSnap.id] = { ...data, id: docSnap.id };
+    });
+
+    saveCachedUserWorkspace(uid, {
+      lectures,
+      gpaCourses,
+      personalResources,
+      subjectProgressMap,
+    });
+
+    return {
+      lectures,
+      gpaCourses,
+      personalResources,
+      subjectProgressMap,
+      fromCache: false,
+    };
   }
 
   static async logoutUserAccount(): Promise<void> {
@@ -504,6 +746,7 @@ export class UserAccountService {
     return onSnapshot(
       userRef,
       (snapshot) => {
+        FirestoreAuditMetrics.recordSnapshotDelivery('users', snapshot.exists() ? 1 : 0);
         if (snapshot.exists()) {
           callback(normalizeUserProfile(snapshot.data() as Partial<UserProfile>, user));
         } else {
@@ -589,6 +832,7 @@ export class UserAccountService {
     return onSnapshot(
       q,
       (snapshot) => {
+        FirestoreAuditMetrics.recordSnapshotDelivery('users_lectures', snapshot.size);
         const list: Lecture[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as Lecture;
@@ -661,6 +905,7 @@ export class UserAccountService {
 
     try {
       const existingSnap = await getDocs(query(colRef, where('userId', '==', uid)));
+      FirestoreAuditMetrics.recordGetDocs('users_lectures', existingSnap.size);
       existingSnap.forEach((d) => existingIds.add(d.id));
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, path);
@@ -699,6 +944,7 @@ export class UserAccountService {
     return onSnapshot(
       q,
       (snapshot) => {
+        FirestoreAuditMetrics.recordSnapshotDelivery('users_gpa_courses', snapshot.size);
         const list: GpaCourse[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as GpaCourse;
@@ -747,6 +993,7 @@ export class UserAccountService {
     let snap;
     try {
       snap = await getDocs(query(colRef, where('userId', '==', uid)));
+      FirestoreAuditMetrics.recordGetDocs('users_gpa_courses', snap.size);
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, path);
     }
@@ -773,6 +1020,7 @@ export class UserAccountService {
 
     try {
       const existingSnap = await getDocs(query(colRef, where('userId', '==', uid)));
+      FirestoreAuditMetrics.recordGetDocs('users_gpa_courses', existingSnap.size);
       existingCount = existingSnap.size;
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, path);
@@ -808,6 +1056,7 @@ export class UserAccountService {
     return onSnapshot(
       q,
       (snapshot) => {
+        FirestoreAuditMetrics.recordSnapshotDelivery('users_personal_resources', snapshot.size);
         const list: PersonalStudyResource[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as PersonalStudyResource;
@@ -873,6 +1122,7 @@ export class UserAccountService {
 
     try {
       const existingSnap = await getDocs(query(colRef, where('userId', '==', uid)));
+      FirestoreAuditMetrics.recordGetDocs('users_personal_resources', existingSnap.size);
       existingSnap.forEach((d) => existingIds.add(d.id));
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, path);
@@ -917,6 +1167,7 @@ export class UserAccountService {
     return onSnapshot(
       q,
       (snapshot) => {
+        FirestoreAuditMetrics.recordSnapshotDelivery('users_subject_progress', snapshot.size);
         const map: Record<string, SubjectStudyProgress> = {};
         snapshot.forEach((docSnap) => {
           const data = docSnap.data() as SubjectStudyProgress;

@@ -1,14 +1,15 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Send, Sparkles, BookOpen, Calendar, Zap, Download } from 'lucide-react';
+import { ArrowLeft, Send, Sparkles, BookOpen, Calendar, Zap, Download, Users } from 'lucide-react';
 import { SiteConfig, DEFAULT_SITE_CONFIG } from '../services/firebase';
 
 interface LandingHeroProps {
   onEnter: () => void;
+  onOpenInnova?: () => void;
   siteConfig?: SiteConfig;
 }
 
-export const LandingHero: React.FC<LandingHeroProps> = ({ onEnter, siteConfig = DEFAULT_SITE_CONFIG }) => {
+export const LandingHero: React.FC<LandingHeroProps> = ({ onEnter, onOpenInnova, siteConfig = DEFAULT_SITE_CONFIG }) => {
   const vis = siteConfig.sectionVisibility || DEFAULT_SITE_CONFIG.sectionVisibility;
 
   if (vis.heroSection === false) {
@@ -76,21 +77,34 @@ export const LandingHero: React.FC<LandingHeroProps> = ({ onEnter, siteConfig = 
           >
             <button
               onClick={onEnter}
-              className="group relative inline-flex items-center justify-center gap-2.5 h-13 sm:h-14 px-7 sm:px-8 rounded-2xl text-sm sm:text-base font-bold text-white bg-gradient-to-r from-[#071A3D] via-[#16958E] to-[#071A3D] shadow-xl shadow-[#071A3D]/25 hover:shadow-2xl hover:shadow-[#16958E]/40 hover:scale-105 active:scale-95 transition-all duration-300 w-full sm:w-auto cursor-pointer"
+              className="group relative inline-flex items-center justify-center gap-2.5 h-13 sm:h-14 px-7 sm:px-8 rounded-2xl text-sm sm:text-base font-bold text-white bg-gradient-to-r from-[#071A3D] via-[#16958E] to-[#071A3D] shadow-xl shadow-[#071A3D]/25 hover:shadow-2xl hover:shadow-[#16958E]/40 hover:scale-105 active:scale-95 transition-all duration-300 w-full sm:w-auto cursor-pointer self-start sm:self-stretch sm:h-auto sm:min-h-[3.5rem]"
             >
               <span>{siteConfig.heroPrimaryBtnText || 'دخول اللوحة الرئيسية'}</span>
               <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1.5 transition-transform duration-300" />
               <div className="absolute inset-0 rounded-2xl bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
             </button>
 
-            {/* Direct PWA Install Button */}
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent('trigger-pwa-install'))}
-              className="inline-flex items-center justify-center gap-2.5 h-13 sm:h-14 px-7 sm:px-8 rounded-2xl text-sm sm:text-base font-bold text-white bg-[#16958E] hover:bg-[#127d77] border border-[#16958E]/40 shadow-lg shadow-[#16958E]/25 hover:shadow-xl hover:scale-105 active:scale-95 transition-all duration-200 w-full sm:w-auto cursor-pointer"
-            >
-              <Download className="w-5 h-5 text-[#BCEBFF]" />
-              <span>تثبيت التطبيق على الجوال 📲</span>
-            </button>
+            {/* PWA Install Button + Dedicated INNOVA Association Button directly below it */}
+            <div className="flex flex-col gap-2.5 w-full sm:w-auto">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('trigger-pwa-install'))}
+                className="inline-flex items-center justify-center gap-2.5 h-13 sm:h-14 px-7 sm:px-8 rounded-2xl text-sm sm:text-base font-bold text-white bg-[#16958E] hover:bg-[#127d77] border border-[#16958E]/40 shadow-lg shadow-[#16958E]/25 hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all duration-200 w-full cursor-pointer"
+              >
+                <Download className="w-5 h-5 text-[#BCEBFF]" />
+                <span>تثبيت التطبيق على الجوال 📲</span>
+              </button>
+
+              {onOpenInnova && (
+                <button
+                  type="button"
+                  onClick={onOpenInnova}
+                  className="inline-flex items-center justify-center gap-2.5 h-12 px-6 rounded-2xl text-sm font-bold text-[#071A3D] dark:text-white bg-white dark:bg-[#09204a] border border-[#16958E]/40 hover:border-[#16958E] hover:bg-[#BCEBFF]/25 dark:hover:bg-[#16958E]/20 shadow-sm transition-all duration-200 w-full cursor-pointer"
+                >
+                  <Users className="w-4 h-4 text-[#16958E]" />
+                  <span>جمعية إنوفا INNOVA</span>
+                </button>
+              )}
+            </div>
 
             {/* Direct Telegram Bot Link */}
             {vis.telegramCard !== false && (
@@ -98,7 +112,7 @@ export const LandingHero: React.FC<LandingHeroProps> = ({ onEnter, siteConfig = 
                 href={siteConfig.telegramBotLink || "http://t.me/Daleelak_AlJamaei_bot"}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center gap-2.5 h-13 sm:h-14 px-7 sm:px-8 rounded-2xl text-sm sm:text-base font-bold text-[#071A3D] dark:text-[#BCEBFF] bg-[#BCEBFF]/40 dark:bg-[#071A3D]/60 border border-[#16958E]/30 hover:bg-[#BCEBFF]/70 dark:hover:bg-[#16958E]/30 transition-all duration-200 w-full sm:w-auto text-center"
+                className="inline-flex items-center justify-center gap-2.5 h-13 sm:h-14 px-7 sm:px-8 rounded-2xl text-sm sm:text-base font-bold text-[#071A3D] dark:text-[#BCEBFF] bg-[#BCEBFF]/40 dark:bg-[#071A3D]/60 border border-[#16958E]/30 hover:bg-[#BCEBFF]/70 dark:hover:bg-[#16958E]/30 transition-all duration-200 w-full sm:w-auto text-center self-start sm:self-stretch sm:h-auto sm:min-h-[3.5rem]"
               >
                 <Send className="w-5 h-5 rotate-180 text-[#16958E]" />
                 <span>{siteConfig.telegramBotName || 'بوت التلجرام'}</span>

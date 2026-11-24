@@ -1,4 +1,4 @@
-export type ActivePage = 'landing' | 'main' | 'college' | 'subjects' | 'subject-detail' | 'schedule' | 'resources' | 'articles' | 'videos' | 'dictionary' | 'gpa' | 'pomodoro';
+export type ActivePage = 'landing' | 'main' | 'college' | 'subjects' | 'subject-detail' | 'schedule' | 'resources' | 'articles' | 'videos' | 'dictionary' | 'innova' | 'gpa' | 'pomodoro';
 
 export type SubjectId = 'anatomy' | 'physiology' | 'biochemistry' | 'microbiology' | 'pathology' | 'pharmacology' | string;
 
@@ -20,13 +20,14 @@ export interface VideoItem {
   id: string;
   title: string;
   description: string;
-  videoUrl: string; // URL or Base64/Blob
+  videoUrl: string; // URL or Base64
   thumbnailUrl?: string;
   duration?: string;
   order: number;
   visible: boolean; // published or hidden
   fileType?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface TickerItem {
@@ -64,6 +65,7 @@ export interface Subject {
   studyTips: string[];
   recommendedBooks: string[];
   lectureTopics: { id: string; titleAr: string; titleEn: string; duration: string; summary: string }[];
+  updatedAt?: string;
 }
 
 export interface Lecture {
@@ -189,5 +191,39 @@ export interface MedicalTerm {
   search_tokens: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface InnovaInfoData {
+  id: string;
+  aboutTitle: string;
+  aboutDescription: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InnovaMemberItem {
+  id: string;
+  name: string;
+  position: string;
+  photoUrl: string;
+  photoStoragePath?: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type InnovaContentCategory = 'articles' | 'events';
+
+export interface InnovaContentItem {
+  id: string;
+  category: InnovaContentCategory;
+  title: string;
+  description: string;
+  imageUrl: string;
+  imageStoragePath?: string;
+  published: boolean;
+  eventDate?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 

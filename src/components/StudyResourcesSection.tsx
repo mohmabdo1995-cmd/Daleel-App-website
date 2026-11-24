@@ -106,11 +106,7 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
 
   useEffect(() => {
     const unsubscribeResources = FirebaseService.subscribeStudyResources((data) => {
-      if (data && data.length > 0) {
-        setResources(data);
-      } else {
-        setResources(STUDY_RESOURCES);
-      }
+      setResources(Array.isArray(data) ? data : []);
     });
 
     const unsubscribeSubjects = FirebaseService.subscribeSubjects((data) => {

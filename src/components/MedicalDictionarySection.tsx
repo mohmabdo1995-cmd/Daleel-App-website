@@ -13,7 +13,6 @@ import {
   ExternalLink,
   ChevronLeft,
 } from 'lucide-react';
-import { DocumentSnapshot } from 'firebase/firestore';
 import { MedicalTerm } from '../types';
 import {
   BUILT_IN_MEDICAL_SPECIALTIES,
@@ -36,7 +35,6 @@ interface MedicalDictionarySectionProps {
   onCloseTerm: () => void;
 }
 
-const INITIAL_PAGE_SIZE = 48;
 const CLIENT_VISIBLE_INCREMENT = 24;
 
 function HighlightedText({
@@ -77,11 +75,8 @@ export const MedicalDictionarySection: React.FC<MedicalDictionarySectionProps> =
 
   const [termsCatalog, setTermsCatalog] = useState<MedicalTerm[]>(MEDICAL_TERMS_SEED);
   const [remoteMatches, setRemoteMatches] = useState<MedicalTerm[]>([]);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isSearchingRemote, setIsSearchingRemote] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMoreRemote, setHasMoreRemote] = useState(false);
-  const [lastCursor, setLastCursor] = useState<DocumentSnapshot | null>(null);
   const [dataSourceKind, setDataSourceKind] = useState<'firestore' | 'curated'>('curated');
   const [visibleLimit, setVisibleLimit] = useState(CLIENT_VISIBLE_INCREMENT);
   const [resolvedRouteTerm, setResolvedRouteTerm] = useState<MedicalTerm | null>(null);
@@ -89,31 +84,16 @@ export const MedicalDictionarySection: React.FC<MedicalDictionarySectionProps> =
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. Initial paginated load + live public Firestore listener
+  // 1. IndexedDB-first merged catalog subscription (0 redundant Firestore reads!)
   useEffect(() => {
     let active = true;
-
-    (async () => {
-      try {
-        const page = await MedicalTermsService.fetchPublicVerifiedTermsPage(INITIAL_PAGE_SIZE);
-        if (!active) return;
-        if (page.items.length > 0) {
-          setTermsCatalog(page.items);
-          setLastCursor(page.lastCursor);
-          setHasMoreRemote(page.hasMore);
-          setDataSourceKind(page.fromFirestore ? 'firestore' : 'curated');
-        }
-      } finally {
-        if (active) setIsInitialLoading(false);
-      }
-    })();
-
-    const unsub = MedicalTermsService.subscribePublicVerifiedTerms((liveItems, hasRemote) => {
+    const unsub = MedicalTermsService.subscribeMergedVerifiedCatalog((mergedItems, source) => {
       if (!active) return;
-      if (liveItems.length > 0) {
-        setTermsCatalog(liveItems);
-        setDataSourceKind(hasRemote ? 'firestore' : 'curated');
+      if (mergedItems.length > 0) {
+        setTermsCatalog(mergedItems);
+        setDataSourceKind(source === 'cloud' ? 'firestore' : 'curated');
       }
+      setIsInitialLoading(false);
     });
 
     return () => {
@@ -123,7 +103,7 @@ export const MedicalDictionarySection: React.FC<MedicalDictionarySectionProps> =
     };
   }, []);
 
-  // 2. Debounced search query + scalable Firestore token augmentation
+  // 2. Debounced search query (local-first over 3,950+ terms; remote token lookup ONLY if 0 local matches)
   useEffect(() => {
     const trimmed = rawInput.trim();
     if (!trimmed) {
@@ -134,26 +114,29 @@ export const MedicalDictionarySection: React.FC<MedicalDictionarySectionProps> =
       return;
     }
 
-    setIsSearchingRemote(true);
     const timer = window.setTimeout(async () => {
       setDebouncedQuery(trimmed);
       setVisibleLimit(CLIENT_VISIBLE_INCREMENT);
 
-      if (trimmed.length >= 2) {
+      const localCheck = searchMedicalTerms(termsCatalog, trimmed, { specialty: 'all' });
+      if (localCheck.results.length === 0 && trimmed.length >= 3) {
+        setIsSearchingRemote(true);
         try {
           const hits = await MedicalTermsService.queryPublicTermsByTokenRemote(trimmed);
           setRemoteMatches(hits);
         } catch {
           setRemoteMatches([]);
+        } finally {
+          setIsSearchingRemote(false);
         }
       } else {
         setRemoteMatches([]);
+        setIsSearchingRemote(false);
       }
-      setIsSearchingRemote(false);
-    }, 180);
+    }, 150);
 
     return () => window.clearTimeout(timer);
-  }, [rawInput]);
+  }, [rawInput, termsCatalog]);
 
   // 3. Resolve deep-linked term (?view=dictionary&term=myocardium) if outside loaded catalog
   useEffect(() => {
@@ -232,33 +215,9 @@ export const MedicalDictionarySection: React.FC<MedicalDictionarySectionProps> =
 
   const hasMoreClientItems = visibleResults.length < searchOutput.results.length;
 
-  const handleLoadMore = async () => {
+  const handleLoadMore = () => {
     if (hasMoreClientItems) {
       setVisibleLimit((prev) => prev + CLIENT_VISIBLE_INCREMENT);
-      return;
-    }
-    if (hasMoreRemote && lastCursor && !isLoadingMore) {
-      setIsLoadingMore(true);
-      try {
-        const nextPage = await MedicalTermsService.fetchPublicVerifiedTermsPage(
-          INITIAL_PAGE_SIZE,
-          lastCursor
-        );
-        if (nextPage.items.length > 0) {
-          setTermsCatalog((prev) => {
-            const map = new Map(prev.map((p) => [p.id, p]));
-            nextPage.items.forEach((it) => map.set(it.id, it));
-            return Array.from(map.values());
-          });
-          setLastCursor(nextPage.lastCursor);
-          setHasMoreRemote(nextPage.hasMore);
-          setVisibleLimit((prev) => prev + nextPage.items.length);
-        } else {
-          setHasMoreRemote(false);
-        }
-      } finally {
-        setIsLoadingMore(false);
-      }
     }
   };
 
@@ -605,19 +564,15 @@ export const MedicalDictionarySection: React.FC<MedicalDictionarySectionProps> =
       )}
 
       {/* Load More Pagination */}
-      {(hasMoreClientItems || hasMoreRemote) && (
+      {hasMoreClientItems && (
         <div className="flex justify-center pt-2">
           <button
             type="button"
             onClick={handleLoadMore}
-            disabled={isLoadingMore}
-            className="px-6 py-3 rounded-2xl bg-[#071A3D] hover:bg-[#16958E] text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-60"
+            className="px-6 py-3 rounded-2xl bg-[#071A3D] hover:bg-[#16958E] text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 cursor-pointer"
           >
-            {isLoadingMore && <Loader2 className="w-4 h-4 animate-spin" />}
             <span>
-              {isLoadingMore
-                ? 'جاري تحميل المزيد...'
-                : `عرض المزيد (${searchOutput.results.length - visibleResults.length} متبقي)`}
+              عرض المزيد ({searchOutput.results.length - visibleResults.length} متبقي)
             </span>
           </button>
         </div>

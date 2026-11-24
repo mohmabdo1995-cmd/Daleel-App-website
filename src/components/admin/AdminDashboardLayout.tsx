@@ -6,21 +6,24 @@ import {
   Plus, Trash2, Eye, EyeOff, Download, Upload, Clock, Layers, Sparkles,
   BookOpen, Calendar, HelpCircle, ExternalLink, Globe, Phone, Mail, MapPin,
   Video, Play, MoveUp, MoveDown, Heading, Bold, Italic, List, ListOrdered,
-  Quote, ImageIcon, FileCode, Check, X, ArrowRight, Edit3, Film, AlertTriangle, Radio, Cloud, Stethoscope
+  Quote, ImageIcon, FileCode, Check, X, ArrowRight, Edit3, Film, AlertTriangle, Radio, Cloud, Stethoscope, Database, HardDrive, Wifi, WifiOff, Activity, RotateCcw, Building2
 } from 'lucide-react';
 import {
   FirebaseService, SiteConfig, DEFAULT_SITE_CONFIG, SectionVisibility,
   AnnouncementItem, MediaItem, AdminLogItem, ButtonConfig
 } from '../../services/firebase';
 import { AdminAuthService } from '../../services/adminAuth';
-import { ArticleItem, VideoItem, CollegeInfoData, Subject, TickerItem } from '../../types';
+import { ArticleItem, VideoItem, CollegeInfoData, Subject, TickerItem, StudyResource, InnovaMemberItem, InnovaContentItem } from '../../types';
 import { COLLEGE_INFO, SUBJECTS_DATA } from '../../data/academicContent';
 import { Modal } from '../common/Modal';
 import { GoogleDriveStorageManager } from './GoogleDriveStorageManager';
 import { StudyResourcesManager } from './StudyResourcesManager';
 import { MedicalTermsManager } from './MedicalTermsManager';
+import { InnovaAdminManager } from './InnovaAdminManager';
 import { MedicalTermsService } from '../../services/medicalTermsService';
 import { MEDICAL_TERMS_SEED } from '../../data/medicalTermsSeed';
+import { CacheDiagnosticsSnapshot, DataSyncService } from '../../services/dataSyncService';
+import { FirestoreAuditMetrics, SmartCache } from '../../services/smartCache';
 import {
   buildRepeatedTickerItems,
   computeTickerDuration,
@@ -29,11 +32,13 @@ import {
 
 interface AdminDashboardLayoutProps {
   onCloseAdmin: () => void;
+  adminEmail?: string | null;
 }
 
 type AdminTab =
   | 'overview'
   | 'ticker'
+  | 'innova'
   | 'medical_dictionary'
   | 'study_resources'
   | 'articles'
@@ -47,9 +52,13 @@ type AdminTab =
   | 'announcements'
   | 'design'
   | 'seo'
+  | 'cache_manager'
   | 'backup_logs';
 
-export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCloseAdmin }) => {
+export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
+  onCloseAdmin,
+  adminEmail,
+}) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [config, setConfig] = useState<SiteConfig>(DEFAULT_SITE_CONFIG);
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
@@ -72,6 +81,8 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
   const [medicalTermsCount, setMedicalTermsCount] = useState<number>(MEDICAL_TERMS_SEED.length);
   const [medicalTermsNeedsReviewCount, setMedicalTermsNeedsReviewCount] = useState<number>(0);
   const [medicalTermsFirestoreActive, setMedicalTermsFirestoreActive] = useState<boolean>(false);
+  const [innovaMembersCount, setInnovaMembersCount] = useState<number>(0);
+  const [innovaContentsCount, setInnovaContentsCount] = useState<number>(0);
 
   const [isSaving, setIsSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -117,47 +128,174 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
   const [newMediaType, setNewMediaType] = useState<'image' | 'pdf' | 'video' | 'logo'>('image');
 
   const [importJsonText, setImportJsonText] = useState('');
+  const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [isImportingBackup, setIsImportingBackup] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    success: boolean;
+    stats: Record<string, number>;
+    errors: string[];
+  } | null>(null);
+  const [confirmActionModal, setConfirmActionModal] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone?: 'danger' | 'primary';
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+  const [isConfirmActionRunning, setIsConfirmActionRunning] = useState(false);
 
+  // --- Smart Cache & Sync Manager States ---
+  const [cacheDiagnostics, setCacheDiagnostics] = useState<CacheDiagnosticsSnapshot | null>(null);
+  const [isSyncingCache, setIsSyncingCache] = useState(false);
+  const [confirmClearPublicCache, setConfirmClearPublicCache] = useState(false);
+  const [syncResultBanner, setSyncResultBanner] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const refreshCacheDiagnostics = async () => {
+    try {
+      const snap = await DataSyncService.getCacheDiagnostics();
+      setCacheDiagnostics(snap);
+    } catch {
+      // ignore diagnostics error
+    }
+  };
+
+  // 1. Lightweight Mount Effect: Subscribe ONLY to site_config + hydrate overview counters from IndexedDB (0 extra Firestore reads!)
   useEffect(() => {
-    // Realtime Subscriptions
     const unsubscribeConfig = FirebaseService.subscribeSiteConfig((data) => setConfig(data));
-    const unsubscribeAnn = FirebaseService.subscribeAnnouncements((data) => setAnnouncements(data));
-    const unsubscribeMedia = FirebaseService.subscribeMedia((data) => setMediaList(data));
-    const unsubscribeLogs = FirebaseService.subscribeAdminLogs((data) => setAdminLogs(data));
-    const unsubscribeArt = FirebaseService.subscribeArticles((data) => setArticles(data));
-    const unsubscribeVid = FirebaseService.subscribeVideos((data) => setVideos(data));
-    const unsubscribeTicker = FirebaseService.subscribeTicker((data) => setTickerItems(data));
-    const unsubscribeCollege = FirebaseService.subscribeCollegeInfo((data) => setCollegeInfo(data));
-    const unsubscribeSubj = FirebaseService.subscribeSubjects((data) => setSubjects(data));
-    const unsubscribeResources = FirebaseService.subscribeStudyResources((data) => setStudyResourcesCount(data.length));
-    const unsubscribeMedicalTerms = MedicalTermsService.subscribeAdminMedicalTerms((items) => {
-      if (items.length > 0) {
-        setMedicalTermsCount(items.length);
-        setMedicalTermsNeedsReviewCount(
-          items.filter((t) => t.verification_status === 'needs_review').length
-        );
-        setMedicalTermsFirestoreActive(true);
-      } else {
-        setMedicalTermsCount(MEDICAL_TERMS_SEED.length);
-        setMedicalTermsNeedsReviewCount(0);
-        setMedicalTermsFirestoreActive(false);
-      }
+    const unsubscribeDiag = DataSyncService.subscribeDiagnostics(() => {
+      void refreshCacheDiagnostics();
     });
+    const unsubscribeMetrics = FirestoreAuditMetrics.subscribe(() => {
+      void refreshCacheDiagnostics();
+    });
+
+    void DataSyncService.getOrFetchManifest(true).then(() => refreshCacheDiagnostics());
+
+    // Hydrate overview counters from IndexedDB cache without triggering Firestore reads
+    void (async () => {
+      const [artRec, vidRec, annRec, tickRec, subjRec, resRec, medSummary, innovaMemRec, innovaContRec] = await Promise.all([
+        SmartCache.getCollection<ArticleItem[]>('articles'),
+        SmartCache.getCollection<VideoItem[]>('videos'),
+        SmartCache.getCollection<AnnouncementItem[]>('announcements'),
+        SmartCache.getCollection<TickerItem[]>('ticker_items'),
+        SmartCache.getCollection<Subject[]>('subjects_data'),
+        SmartCache.getCollection<StudyResource[]>('study_resources'),
+        MedicalTermsService.getCachedAdminTermsSummary(),
+        SmartCache.getCollection<InnovaMemberItem[]>('innova_members'),
+        SmartCache.getCollection<InnovaContentItem[]>('innova_contents'),
+      ]);
+
+      if (Array.isArray(artRec?.data)) setArticles(artRec!.data);
+      if (Array.isArray(vidRec?.data)) setVideos(vidRec!.data);
+      if (Array.isArray(annRec?.data)) setAnnouncements(annRec!.data);
+      if (Array.isArray(tickRec?.data)) setTickerItems(tickRec!.data);
+      if (Array.isArray(subjRec?.data) && subjRec!.data.length > 0) setSubjects(subjRec!.data);
+      if (Array.isArray(resRec?.data)) setStudyResourcesCount(resRec!.data.length);
+      if (Array.isArray(innovaMemRec?.data)) setInnovaMembersCount(innovaMemRec!.data.length);
+      if (Array.isArray(innovaContRec?.data)) setInnovaContentsCount(innovaContRec!.data.length);
+
+      setMedicalTermsCount(medSummary.total);
+      setMedicalTermsNeedsReviewCount(medSummary.needsReview);
+      setMedicalTermsFirestoreActive(medSummary.hasDeltaCache);
+    })();
 
     return () => {
       unsubscribeConfig();
-      unsubscribeAnn();
-      unsubscribeMedia();
-      unsubscribeLogs();
-      unsubscribeArt();
-      unsubscribeVid();
-      unsubscribeTicker();
-      unsubscribeCollege();
-      unsubscribeSubj();
-      unsubscribeResources();
-      unsubscribeMedicalTerms();
+      unsubscribeDiag();
+      unsubscribeMetrics();
     };
   }, []);
+
+  // 2. Lazy Tab Loading: Subscribe & check manifest freshness when Admin tab opens
+  useEffect(() => {
+    if (activeTab === 'ticker') {
+      void DataSyncService.loadCollection('ticker_items', { forceManifestCheck: true });
+      return FirebaseService.subscribeTicker((data) => setTickerItems(data));
+    }
+    if (activeTab === 'articles') {
+      void DataSyncService.loadCollection('articles', { forceManifestCheck: true });
+      return FirebaseService.subscribeArticles((data) => setArticles(data));
+    }
+    if (activeTab === 'videos') {
+      void DataSyncService.loadCollection('videos', { forceManifestCheck: true });
+      return FirebaseService.subscribeVideos((data) => setVideos(data));
+    }
+    if (activeTab === 'college_sections') {
+      void DataSyncService.loadCollection('college_info', { forceManifestCheck: true });
+      void DataSyncService.loadCollection('subjects_data', { forceManifestCheck: true });
+      const unsubCollege = FirebaseService.subscribeCollegeInfo((data) => setCollegeInfo(data));
+      const unsubSubj = FirebaseService.subscribeSubjects((data) => setSubjects(data));
+      return () => {
+        unsubCollege();
+        unsubSubj();
+      };
+    }
+    if (activeTab === 'study_resources') {
+      void DataSyncService.loadCollection('study_resources', { forceManifestCheck: true });
+      const unsubSubj = FirebaseService.subscribeSubjects((data) => setSubjects(data));
+      const unsubRes = FirebaseService.subscribeStudyResources((data) =>
+        setStudyResourcesCount(data.length)
+      );
+      return () => {
+        unsubSubj();
+        unsubRes();
+      };
+    }
+    if (activeTab === 'announcements') {
+      void DataSyncService.loadCollection('announcements', { forceManifestCheck: true });
+      return FirebaseService.subscribeAnnouncements((data) => setAnnouncements(data));
+    }
+    if (activeTab === 'media') {
+      void DataSyncService.loadCollection('media', { forceManifestCheck: true });
+      return FirebaseService.subscribeMedia((data) => setMediaList(data));
+    }
+    if (activeTab === 'backup_logs') {
+      return FirebaseService.subscribeAdminLogs((data) => setAdminLogs(data));
+    }
+    if (activeTab === 'cache_manager') {
+      void refreshCacheDiagnostics();
+    }
+  }, [activeTab]);
+
+  const handleManualSmartSync = async (forceFull: boolean) => {
+    setIsSyncingCache(true);
+    setSyncResultBanner(null);
+    try {
+      const res = await DataSyncService.manualSmartSyncAll({ forceFull });
+      await refreshCacheDiagnostics();
+      if (res.success) {
+        const msg = forceFull
+          ? `تمت المزامنة الكاملة الإجبارية لـ ${res.updatedCollections.length} مجموعة بنجاح.`
+          : `اكتملت المزامنة الذكية: تحديث ${res.updatedCollections.length} مجموعة وتخطي ${res.skippedCollections.length} مجموعة مطابقة (توفير للقراءات).`;
+        setSyncResultBanner({ type: 'success', message: msg });
+        showToast(msg);
+      } else {
+        const msg = res.error || 'تعذر إتمام المزامنة السحابية.';
+        setSyncResultBanner({ type: 'error', message: msg });
+        showToast(msg);
+      }
+    } finally {
+      setIsSyncingCache(false);
+    }
+  };
+
+  const handleClearPublicCacheAdmin = async () => {
+    setIsSyncingCache(true);
+    try {
+      await DataSyncService.clearPublicCacheAdminOnly();
+      setConfirmClearPublicCache(false);
+      await refreshCacheDiagnostics();
+      const msg = 'تم مسح كاش المحتوى العام بنجاح مع الحفاظ الكامل على بيانات الطلاب الشخصية.';
+      setSyncResultBanner({ type: 'success', message: msg });
+      showToast(msg);
+    } finally {
+      setIsSyncingCache(false);
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -185,8 +323,8 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
     }
   };
 
-  const handleLogoutAdmin = () => {
-    AdminAuthService.logout();
+  const handleLogoutAdmin = async () => {
+    await AdminAuthService.logout();
     onCloseAdmin();
   };
 
@@ -264,21 +402,22 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
     }
 
     if (file.size > 850 * 1024) {
-      setVideoFileError(`حجم الملف (${(file.size / (1024 * 1024)).toFixed(1)} ميجابايت) يتجاوز حد التخزين المباشر (1MB). يُوصى بوضع رابط يوتيوب أو Google Drive لتشغيل الفيديوهات الطويلة لجميع الطلاب بلا قيود.`);
-      const url = URL.createObjectURL(file);
-      setEditingVideo(prev => ({ ...prev, videoUrl: url, fileType: file.type || 'video/mp4' }));
-    } else {
-      // Small file: convert to Base64 Data URL so it is permanently saved into Firestore
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          setEditingVideo(prev => ({ ...prev, videoUrl: e.target!.result as string, fileType: file.type || 'video/mp4' }));
-        }
-      };
-      reader.readAsDataURL(file);
+      setVideoFileError(
+        `حجم الملف (${(file.size / (1024 * 1024)).toFixed(1)} ميجابايت) يتجاوز حد التخزين المباشر في Firestore (850 كيلوبايت). لحفظ الفيديو للطلاب، ارفعه من تبويب "سحابة Google Drive (15GB)" أو أدخل رابط يوتيوب/درايف مباشرة.`
+      );
+      return;
     }
 
-    // Generate Auto Thumbnail Canvas Poster
+    // Small file: convert to Base64 Data URL so it is permanently saved into Firestore
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        setEditingVideo(prev => ({ ...prev, videoUrl: e.target!.result as string, fileType: file.type || 'video/mp4' }));
+      }
+    };
+    reader.readAsDataURL(file);
+
+    // Generate Auto Thumbnail Canvas Poster and clean up temporary object URL
     const previewUrl = URL.createObjectURL(file);
     const video = document.createElement('video');
     video.src = previewUrl;
@@ -293,12 +432,22 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
         const posterUrl = canvas.toDataURL('image/jpeg');
         setEditingVideo(prev => ({ ...prev, thumbnailUrl: prev?.thumbnailUrl || posterUrl }));
       }
+      URL.revokeObjectURL(previewUrl);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(previewUrl);
     };
   };
 
   const handleSaveVideo = async () => {
     if (!editingVideo?.title || !editingVideo?.videoUrl) {
       showToast('يرجى كتابة عنوان الفيديو ورابط أو ملف الفيديو');
+      return;
+    }
+
+    if (editingVideo.videoUrl.trim().toLowerCase().startsWith('blob:')) {
+      setVideoFileError('لا يمكن حفظ روابط المتصفح المؤقتة (blob:). يرجى استخدام تبويب "سحابة Google Drive (15GB)" أو رابط مباشر.');
+      showToast('رابط الفيديو المؤقت غير صالح للنشر السحابي');
       return;
     }
 
@@ -321,8 +470,9 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
       }
       setIsVideoModalOpen(false);
       setEditingVideo(null);
-    } catch (e) {
-      showToast('حدث خطأ أثناء حفظ الفيديو');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'حدث خطأ أثناء حفظ الفيديو';
+      showToast(msg);
     }
   };
 
@@ -332,9 +482,13 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
     const currentVid = videos[index];
     const targetVid = videos[targetIndex];
 
-    await FirebaseService.updateVideo(currentVid.id, { order: targetVid.order });
-    await FirebaseService.updateVideo(targetVid.id, { order: currentVid.order });
-    showToast('تم تغيير ترتيب الفيديو بنجاح');
+    try {
+      await FirebaseService.updateVideo(currentVid.id, { order: targetVid.order });
+      await FirebaseService.updateVideo(targetVid.id, { order: currentVid.order });
+      showToast('تم تغيير ترتيب الفيديو بنجاح');
+    } catch {
+      showToast('تعذر تحديث ترتيب الفيديو في قاعدة البيانات');
+    }
   };
 
   // --- Save College Section ---
@@ -502,11 +656,32 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
               <ShieldCheck className="w-6 h-6 text-[#BCEBFF]" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-base font-extrabold font-tajawal text-white">لوحة تحكم المشرف الكاملة</h1>
-                <span className="px-2 py-0.5 rounded-full bg-[#16958E]/20 text-[#BCEBFF] text-[10px] font-bold border border-[#16958E]/40">
-                  متصل بـ Firestore
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    cacheDiagnostics?.isOnline === false
+                      ? 'bg-slate-700/80 text-slate-200 border-slate-500/40'
+                      : cacheDiagnostics?.isQuotaExceeded
+                      ? 'bg-amber-500/20 text-amber-200 border-amber-400/40'
+                      : cacheDiagnostics?.syncStatus === 'error'
+                      ? 'bg-rose-500/20 text-rose-200 border-rose-400/40'
+                      : 'bg-[#16958E]/20 text-[#BCEBFF] border-[#16958E]/40'
+                  }`}
+                >
+                  {cacheDiagnostics?.isOnline === false
+                    ? 'غير متصل (كاش محلي)'
+                    : cacheDiagnostics?.isQuotaExceeded
+                    ? 'حصة Firestore مكتملة'
+                    : cacheDiagnostics?.syncStatus === 'error'
+                    ? 'تحذير مزامنة'
+                    : 'جلسة مشرف موثّقة'}
                 </span>
+                {adminEmail && (
+                  <span className="hidden md:inline-block px-2 py-0.5 rounded-full bg-white/10 text-slate-200 text-[10px] font-mono">
+                    {adminEmail}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-300">إدارة الموقع، المقالات، الفيديوهات ونصوص الكلية بدون كود</p>
             </div>
@@ -620,6 +795,27 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
             </button>
 
             <button
+              onClick={() => setActiveTab('innova')}
+              className={`w-full text-right px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-between transition-all ${
+                activeTab === 'innova'
+                  ? 'bg-[#071A3D] text-white shadow-md'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Building2 className="w-4 h-4 text-[#16958E]" />
+                <span>إدارة جمعية إنوفا</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                activeTab === 'innova'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-[#16958E]/15 text-[#16958E]'
+              }`}>
+                {innovaMembersCount + innovaContentsCount}
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('articles')}
               className={`w-full text-right px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-between transition-all ${
                 activeTab === 'articles'
@@ -729,6 +925,31 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
             </button>
 
             <button
+              onClick={() => setActiveTab('cache_manager')}
+              className={`w-full text-right px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-between transition-all ${
+                activeTab === 'cache_manager'
+                  ? 'bg-[#071A3D] text-white shadow-md'
+                  : 'text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Database className="w-4 h-4 text-[#16958E]" />
+                <span>التخزين المؤقت والمزامنة</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                  activeTab === 'cache_manager'
+                    ? 'bg-white/20 text-white'
+                    : cacheDiagnostics?.isQuotaExceeded
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                {cacheDiagnostics?.metrics.totalDocsRead ?? 0} قراءة
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('backup_logs')}
               className={`w-full text-right px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2.5 transition-all ${
                 activeTab === 'backup_logs'
@@ -753,8 +974,24 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                   <h2 className="text-xl font-extrabold font-tajawal text-slate-900">ملخص حالة لوحة التحكم</h2>
                   <p className="text-xs text-slate-500 mt-1">مرحباً بك! يمكنك التعديل المباشر على كافة عناصر الموقع ومتابعته فوراً</p>
                 </div>
-                <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-                  Firestore Active
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    cacheDiagnostics?.isOnline === false
+                      ? 'bg-slate-200 text-slate-700'
+                      : cacheDiagnostics?.isQuotaExceeded
+                      ? 'bg-amber-100 text-amber-800'
+                      : cacheDiagnostics?.syncStatus === 'error'
+                      ? 'bg-rose-100 text-rose-800'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  {cacheDiagnostics?.isOnline === false
+                    ? 'Offline Cache Mode'
+                    : cacheDiagnostics?.isQuotaExceeded
+                    ? 'Quota Guard Active'
+                    : cacheDiagnostics?.syncStatus === 'error'
+                    ? 'Sync Error Detected'
+                    : 'Verified Firebase Admin'}
                 </span>
               </div>
 
@@ -857,6 +1094,101 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                   <ArrowRight className="w-4 h-4 rotate-180" />
                 </button>
               </div>
+
+              {/* Coordinated Bento Grid Card for INNOVA Association */}
+              <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-[#071A3D]/5 border border-[#16958E]/25 flex items-center justify-center flex-shrink-0 p-2">
+                    <img
+                      src="/assets/innova-logo.svg"
+                      alt="INNOVA Logo"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-extrabold font-tajawal text-[#071A3D]">
+                        جمعية إنوفا INNOVA
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full bg-[#16958E]/15 text-[#16958E] text-[10px] font-bold">
+                        إدارة ديناميكية كاملة
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed max-w-xl">
+                      تحكم كامل في التعريف والهوية، وأعضاء المجلس التنفيذي، والمقالات والفعاليات عبر Firestore وFirebase Storage.
+                    </p>
+                    <div className="text-xs font-bold text-[#071A3D] pt-1">
+                      الأعضاء: <span className="font-mono text-[#16958E]">{innovaMembersCount}</span> · المقالات والفعاليات: <span className="font-mono text-[#16958E]">{innovaContentsCount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('innova')}
+                  className="px-4 py-2.5 rounded-xl bg-[#071A3D] hover:bg-[#16958E] text-white text-xs font-bold shadow-sm flex items-center gap-1.5 transition-all flex-shrink-0 cursor-pointer self-start sm:self-center"
+                >
+                  <span>إدارة جمعية إنوفا</span>
+                  <ArrowRight className="w-4 h-4 rotate-180" />
+                </button>
+              </div>
+
+              {/* Smart Cache & Firestore Read Optimization Summary Card */}
+              <div className="p-5 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-[#16958E]/15 border border-[#16958E]/30 text-[#16958E] flex items-center justify-center flex-shrink-0">
+                    <Database className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-extrabold font-tajawal text-slate-900">
+                        نظام التخزين المؤقت الذكي (IndexedDB + Delta Sync)
+                      </h3>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          cacheDiagnostics?.isQuotaExceeded
+                            ? 'bg-amber-100 text-amber-800'
+                            : cacheDiagnostics?.isOnline === false
+                            ? 'bg-slate-200 text-slate-700'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {cacheDiagnostics?.isQuotaExceeded
+                          ? 'وضع الحماية (تجاوز الحصة)'
+                          : cacheDiagnostics?.isOnline === false
+                          ? 'غير متصل'
+                          : 'نشط ومُحسّن'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      قراءات الجلسة: <strong className="font-mono text-[#071A3D]">{cacheDiagnostics?.metrics.totalDocsRead ?? 0}</strong> ·
+                      نجاح الكاش: <strong className="font-mono text-emerald-700">{cacheDiagnostics?.metrics.cacheHits ?? 0}</strong> ·
+                      مجموعات تم تخطي تحميلها: <strong className="font-mono text-blue-700">{cacheDiagnostics?.metrics.skippedCollectionFetches ?? 0}</strong> ·
+                      الحجم المحلي: <strong className="font-mono">{((cacheDiagnostics?.totalCachedBytes ?? 0) / 1024).toFixed(1)} KB</strong>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleManualSmartSync(false)}
+                    disabled={isSyncingCache}
+                    className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-[#16958E] ${isSyncingCache ? 'animate-spin' : ''}`} />
+                    <span>مزامنة ذكية</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('cache_manager')}
+                    className="px-4 py-2 rounded-xl bg-[#071A3D] hover:bg-[#16958E] text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <span>التفاصيل والإدارة</span>
+                    <ArrowRight className="w-3.5 h-3.5 rotate-180" />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -949,10 +1281,16 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                         <button
                           key={spd}
                           onClick={async () => {
+                            const prevSpeed = config.tickerSpeed;
                             const newCfg = { ...config, tickerSpeed: spd };
                             setConfig(newCfg);
-                            await FirebaseService.updateSiteConfig({ tickerSpeed: spd });
-                            showToast(`تم ضبط سرعة الشريط: ${spd === 'slow' ? 'بطيء' : spd === 'fast' ? 'سريع' : 'عادي'}`);
+                            try {
+                              await FirebaseService.updateSiteConfig({ tickerSpeed: spd });
+                              showToast(`تم ضبط سرعة الشريط: ${spd === 'slow' ? 'بطيء' : spd === 'fast' ? 'سريع' : 'عادي'}`);
+                            } catch {
+                              setConfig({ ...config, tickerSpeed: prevSpeed });
+                              showToast('تعذر حفظ سرعة شريط الأخبار');
+                            }
                           }}
                           className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                             (config.tickerSpeed || 'fast') === spd
@@ -1239,6 +1577,15 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
             />
           )}
 
+          {/* TAB: INNOVA ASSOCIATION MANAGEMENT (إدارة جمعية إنوفا) */}
+          {activeTab === 'innova' && (
+            <InnovaAdminManager
+              onNotify={(msg) => {
+                showToast(msg);
+              }}
+            />
+          )}
+
           {/* TAB 2: ARTICLES MANAGEMENT */}
           {activeTab === 'articles' && (
             <div className="space-y-6">
@@ -1312,13 +1659,19 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                         </button>
 
                         <button
-                          onClick={async () => {
-                            if (confirm('هل أنت تأكد من حذف هذا المقال؟')) {
-                              await FirebaseService.deleteArticle(art.id);
-                              showToast('تم حذف المقال');
-                            }
+                          onClick={() => {
+                            setConfirmActionModal({
+                              title: 'تأكيد حذف المقال',
+                              message: `هل أنت متأكد من حذف المقال "${art.title}" نهائياً من قاعدة البيانات؟`,
+                              confirmLabel: 'حذف المقال',
+                              tone: 'danger',
+                              onConfirm: async () => {
+                                await FirebaseService.deleteArticle(art.id);
+                                showToast('تم حذف المقال بنجاح');
+                              },
+                            });
                           }}
-                          className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700"
+                          className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 cursor-pointer"
                           title="حذف"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1540,13 +1893,19 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={async () => {
-                            if (confirm('حذف هذه المادة الأكاديمية؟')) {
-                              await FirebaseService.deleteSubject(sub.id);
-                              showToast('تم حذف المادة');
-                            }
+                          onClick={() => {
+                            setConfirmActionModal({
+                              title: 'تأكيد حذف المادة الأكاديمية',
+                              message: `هل أنت متأكد من حذف مادة "${sub.nameAr}" من النظام؟`,
+                              confirmLabel: 'حذف المادة',
+                              tone: 'danger',
+                              onConfirm: async () => {
+                                await FirebaseService.deleteSubject(sub.id);
+                                showToast('تم حذف المادة بنجاح');
+                              },
+                            });
                           }}
-                          className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg"
+                          className="p-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1569,17 +1928,19 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={async () => {
-                      if (confirm('هل ترغب في استيراد الفيديوهات والمقالات النموذجية إلى قاعدة البيانات؟')) {
-                        try {
+                    onClick={() => {
+                      setConfirmActionModal({
+                        title: 'استيراد المحتوى النموذجي',
+                        message: 'هل ترغب في استيراد الفيديوهات والمقالات النموذجية إلى قاعدة البيانات؟ (لن يتم مسح المحتوى الحالي)',
+                        confirmLabel: 'استيراد النماذج',
+                        tone: 'primary',
+                        onConfirm: async () => {
                           await FirebaseService.seedDefaultArticlesAndVideos();
                           showToast('تم استيراد المحتوى النموذجي بنجاح!');
-                        } catch (e) {
-                          showToast('حدث خطأ أثناء الاستيراد');
-                        }
-                      }
+                        },
+                      });
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-300 flex items-center gap-1.5"
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold border border-slate-300 flex items-center gap-1.5 cursor-pointer"
                     title="استيراد فيديوهات ومقالات طبية وأكاديمية نموذجية"
                   >
                     <Sparkles className="w-4 h-4 text-amber-500" />
@@ -1664,13 +2025,19 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                         </button>
 
                         <button
-                          onClick={async () => {
-                            if (confirm('حذف هذا الفيديو؟')) {
-                              await FirebaseService.deleteVideo(vid.id);
-                              showToast('تم حذف الفيديو');
-                            }
+                          onClick={() => {
+                            setConfirmActionModal({
+                              title: 'تأكيد حذف الفيديو',
+                              message: `هل أنت متأكد من حذف الفيديو "${vid.title}" نهائياً؟`,
+                              confirmLabel: 'حذف الفيديو',
+                              tone: 'danger',
+                              onConfirm: async () => {
+                                await FirebaseService.deleteVideo(vid.id);
+                                showToast('تم حذف الفيديو بنجاح');
+                              },
+                            });
                           }}
-                          className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700"
+                          className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-700 cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1830,18 +2197,25 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                   </label>
                   <button
                     onClick={async () => {
-                      if (!newMediaName || !newMediaUrl) return;
-                      await FirebaseService.addMedia({
-                        name: newMediaName,
-                        url: newMediaUrl,
-                        type: newMediaType,
-                        visible: true
-                      });
-                      setNewMediaName('');
-                      setNewMediaUrl('');
-                      showToast('تمت إضافة الصورة بنجاح!');
+                      if (!newMediaName.trim() || !newMediaUrl.trim()) {
+                        showToast('يرجى إدخال اسم الصورة ورابطها');
+                        return;
+                      }
+                      try {
+                        await FirebaseService.addMedia({
+                          name: newMediaName.trim(),
+                          url: newMediaUrl.trim(),
+                          type: newMediaType,
+                          visible: true
+                        });
+                        setNewMediaName('');
+                        setNewMediaUrl('');
+                        showToast('تمت إضافة الصورة بنجاح!');
+                      } catch {
+                        showToast('فشل حفظ الصورة في قاعدة البيانات');
+                      }
                     }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold cursor-pointer"
                   >
                     حفظ
                   </button>
@@ -1859,16 +2233,20 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                           navigator.clipboard.writeText(m.url);
                           showToast('تم نسخ رابط الصورة إلى الحافظة!');
                         }}
-                        className="text-[10px] text-blue-600 font-bold hover:underline"
+                        className="text-[10px] text-blue-600 font-bold hover:underline cursor-pointer"
                       >
                         نسخ الرابط
                       </button>
                       <button
                         onClick={async () => {
-                          await FirebaseService.deleteMedia(m.id);
-                          showToast('تم حذف الصورة');
+                          try {
+                            await FirebaseService.deleteMedia(m.id);
+                            showToast('تم حذف الصورة');
+                          } catch {
+                            showToast('تعذر حذف الصورة من قاعدة البيانات');
+                          }
                         }}
-                        className="text-rose-600"
+                        className="text-rose-600 cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -1914,18 +2292,25 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                 </div>
                 <button
                   onClick={async () => {
-                    if (!newAnnTitle) return;
-                    await FirebaseService.addAnnouncement({
-                      title: newAnnTitle,
-                      badge: newAnnBadge,
-                      content: newAnnContent,
-                      visible: true
-                    });
-                    setNewAnnTitle('');
-                    setNewAnnContent('');
-                    showToast('تمت إضافة التنبيه بنجاح!');
+                    if (!newAnnTitle.trim()) {
+                      showToast('يرجى كتابة عنوان التنبيه');
+                      return;
+                    }
+                    try {
+                      await FirebaseService.addAnnouncement({
+                        title: newAnnTitle.trim(),
+                        badge: newAnnBadge.trim() || 'إعلان',
+                        content: newAnnContent.trim(),
+                        visible: true
+                      });
+                      setNewAnnTitle('');
+                      setNewAnnContent('');
+                      showToast('تمت إضافة التنبيه بنجاح!');
+                    } catch {
+                      showToast('فشل نشر التنبيه في قاعدة البيانات');
+                    }
                   }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold cursor-pointer"
                 >
                   نشر التنبيه
                 </button>
@@ -1941,10 +2326,14 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                     </div>
                     <button
                       onClick={async () => {
-                        await FirebaseService.deleteAnnouncement(a.id);
-                        showToast('تم حذف التنبيه');
+                        try {
+                          await FirebaseService.deleteAnnouncement(a.id);
+                          showToast('تم حذف التنبيه');
+                        } catch {
+                          showToast('تعذر حذف التنبيه من قاعدة البيانات');
+                        }
                       }}
-                      className="text-rose-600 p-1"
+                      className="text-rose-600 p-1 cursor-pointer"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -1959,30 +2348,200 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
             <div className="space-y-6">
               <div className="border-b border-slate-100 pb-4">
                 <h2 className="text-xl font-extrabold font-tajawal text-slate-900">النسخ الاحتياطي وسجل العمليات (Audit Logs)</h2>
-                <p className="text-xs text-slate-500 mt-1">تصدير واستعادة نسخ قاعدة البيانات للكلية ومراقبة العمليات</p>
+                <p className="text-xs text-slate-500 mt-1">تصدير واستعادة النسخة الاحتياطية الكاملة لجميع المجموعات (14 قسماً) ومراقبة العمليات</p>
               </div>
 
+              {/* Export Card */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-xs font-bold text-slate-800">تصدير نسخة احتياطية كاملة (JSON)</h3>
-                  <p className="text-[11px] text-slate-500">يتضمن كافة الإعدادات والمقالات والفيديوهات والإعلانات</p>
+                  <h3 className="text-xs font-bold text-slate-800">تصدير نسخة احتياطية كاملة (JSON • Schema v2)</h3>
+                  <p className="text-[11px] text-slate-500">يشمل الإعدادات، الكلية، المواد، المصادر، المقالات، الفيديوهات، الشريط، الإعلانات، الميديا، ملفات Drive، إنوفا، والمصطلحات المخصصة</p>
                 </div>
                 <button
+                  type="button"
+                  disabled={isExportingBackup}
                   onClick={async () => {
-                    const json = await FirebaseService.exportFullData();
-                    const blob = new Blob([json], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `backup_college_${new Date().toISOString().split('T')[0]}.json`;
-                    a.click();
-                    showToast('تم تصدير ملف النسخة الاحتياطية بنجاح!');
+                    setIsExportingBackup(true);
+                    try {
+                      const json = await FirebaseService.exportFullData();
+                      const blob = new Blob([json], { type: 'application/json' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `daleelak_backup_${new Date().toISOString().split('T')[0]}.json`;
+                      a.click();
+                      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                      showToast('تم تصدير النسخة الاحتياطية الكاملة بنجاح!');
+                    } catch {
+                      showToast('فشل تصدير النسخة الاحتياطية');
+                    } finally {
+                      setIsExportingBackup(false);
+                    }
                   }}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
                 >
                   <Download className="w-4 h-4" />
-                  <span>تحميل النسخة الاحتياطية</span>
+                  <span>{isExportingBackup ? 'جاري التصدير...' : 'تحميل النسخة الاحتياطية'}</span>
                 </button>
+              </div>
+
+              {/* Import / Restore Card */}
+              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-extrabold text-slate-900">استيراد واستعادة نسخة احتياطية (JSON)</h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">اختر ملف JSON مصدّراً أو الصق محتواه للمعاينة ثم الاستعادة مع التحقق الكامل من السجلات</p>
+                  </div>
+
+                  <label className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer">
+                    <Upload className="w-3.5 h-3.5 text-[#16958E]" />
+                    <span>اختيار ملف JSON</span>
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          if (typeof ev.target?.result === 'string') {
+                            setImportJsonText(ev.target.result);
+                            setImportResult(null);
+                          }
+                        };
+                        reader.readAsText(file);
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <textarea
+                  rows={5}
+                  value={importJsonText}
+                  onChange={(e) => {
+                    setImportJsonText(e.target.value);
+                    setImportResult(null);
+                  }}
+                  placeholder="الصق هنا محتوى ملف النسخة الاحتياطية بصيغة JSON أو اختر ملفاً من الأعلى..."
+                  className="w-full p-3 rounded-xl bg-white border border-slate-200 text-xs font-mono text-left outline-none focus:ring-2 focus:ring-[#16958E]"
+                  dir="ltr"
+                />
+
+                {/* Preview Summary */}
+                {(() => {
+                  if (!importJsonText.trim()) return null;
+                  try {
+                    const obj = JSON.parse(importJsonText) as Record<string, unknown>;
+                    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+                    const countOf = (k: string) => (Array.isArray(obj[k]) ? (obj[k] as unknown[]).length : obj[k] ? 1 : 0);
+                    return (
+                      <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-950 space-y-2">
+                        <p className="font-extrabold">معاينة محتوى النسخة قبل الاستعادة:</p>
+                        <div className="flex flex-wrap gap-2 text-[11px] font-mono">
+                          <span>إعدادات: {countOf('siteConfig')}</span>
+                          <span>• كلية: {countOf('collegeInfo')}</span>
+                          <span>• مواد: {countOf('subjectsData')}</span>
+                          <span>• مصادر: {countOf('studyResources')}</span>
+                          <span>• مقالات: {countOf('articles')}</span>
+                          <span>• فيديوهات: {countOf('videos')}</span>
+                          <span>• أخبار: {countOf('tickerItems')}</span>
+                          <span>• إعلانات: {countOf('announcements')}</span>
+                          <span>• ميديا: {countOf('media')}</span>
+                          <span>• Drive: {countOf('driveFiles')}</span>
+                          <span>• إنوفا: {countOf('innovaMembers') + countOf('innovaContents') + countOf('innovaInfo')}</span>
+                          <span>• مصطلحات: {countOf('medicalTermsCustom')}</span>
+                        </div>
+                      </div>
+                    );
+                  } catch {
+                    return (
+                      <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 font-bold">
+                        النص المدخل ليس بصيغة JSON صالحة بعد.
+                      </div>
+                    );
+                  }
+                })()}
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-4 text-xs font-bold text-slate-700">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="backup_import_mode"
+                        checked={importMode === 'merge'}
+                        onChange={() => setImportMode('merge')}
+                      />
+                      <span>دمج وتحديث (Merge — آمن)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-rose-700">
+                      <input
+                        type="radio"
+                        name="backup_import_mode"
+                        checked={importMode === 'replace'}
+                        onChange={() => setImportMode('replace')}
+                      />
+                      <span>استبدال كامل (Replace)</span>
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!importJsonText.trim() || isImportingBackup}
+                    onClick={() => {
+                      setConfirmActionModal({
+                        title: importMode === 'replace' ? 'تأكيد الاستبدال الكامل بالنسخة الاحتياطية' : 'تأكيد استيراد ودمج النسخة الاحتياطية',
+                        message:
+                          importMode === 'replace'
+                            ? 'تحذير: وضع الاستبدال الكامل سيحذف السجلات غير الموجودة في النسخة من المجموعات المستوردة. هل تريد المتابعة؟'
+                            : 'سيتم التحقق من صحة جميع السجلات ودمجها مع قاعدة البيانات الحالية وتحديث الكاش للمستخدمين.',
+                        confirmLabel: isImportingBackup ? 'جاري الاستعادة...' : 'تنفيذ الاستعادة الآن',
+                        tone: importMode === 'replace' ? 'danger' : 'primary',
+                        onConfirm: async () => {
+                          setIsImportingBackup(true);
+                          try {
+                            const res = await FirebaseService.importFullData(importJsonText, { mode: importMode });
+                            setImportResult(res);
+                            showToast(res.success ? 'تمت استعادة النسخة الاحتياطية بنجاح!' : 'تمت الاستعادة مع بعض الملاحظات');
+                          } finally {
+                            setIsImportingBackup(false);
+                          }
+                        },
+                      });
+                    }}
+                    className="px-5 py-2 rounded-xl bg-[#071A3D] hover:bg-[#16958E] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>{isImportingBackup ? 'جاري الاستعادة...' : 'استعادة النسخة الاحتياطية'}</span>
+                  </button>
+                </div>
+
+                {importResult && (
+                  <div
+                    className={`p-3.5 rounded-xl border text-xs space-y-1.5 ${
+                      importResult.success
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                        : 'bg-amber-50 border-amber-200 text-amber-900'
+                    }`}
+                  >
+                    <p className="font-extrabold">
+                      {importResult.success ? 'اكتملت الاستعادة والتحقق بنجاح:' : 'اكتملت الاستعادة مع تحذيرات:'}
+                    </p>
+                    <p className="font-mono text-[11px]">
+                      {Object.entries(importResult.stats)
+                        .filter(([, count]) => Number(count) > 0)
+                        .map(([k, count]) => `${k}: ${String(count)}`)
+                        .join(' | ') || 'لم يتم تعديل أي سجلات.'}
+                    </p>
+                    {importResult.errors.length > 0 && (
+                      <ul className="list-disc mr-4 text-[11px] text-rose-700 space-y-0.5">
+                        {importResult.errors.slice(0, 8).map((errMsg, idx) => (
+                          <li key={idx}>{errMsg}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Audit Logs List */}
@@ -1998,6 +2557,270 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
                       <span className="text-[10px] text-slate-400 font-mono">{new Date(log.timestamp).toLocaleTimeString('ar-EG')}</span>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: SMART CACHE & SYNC MANAGER */}
+          {activeTab === 'cache_manager' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Database className="w-5 h-5 text-[#16958E]" />
+                    <h2 className="text-xl font-extrabold font-tajawal text-slate-900">
+                      إدارة التخزين المؤقت والمزامنة الذكية
+                    </h2>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    مراقبة كاش IndexedDB، قياس استهلاك قراءات Firestore، وتشغيل المزامنة الانتقائية بأقل تكلفة ممكنة
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleManualSmartSync(false)}
+                    disabled={isSyncingCache}
+                    className="px-3.5 py-2 rounded-xl bg-[#16958E] hover:bg-[#127d77] text-white text-xs font-bold shadow flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingCache ? 'animate-spin' : ''}`} />
+                    <span>مزامنة ذكية الآن</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleManualSmartSync(true)}
+                    disabled={isSyncingCache}
+                    className="px-3.5 py-2 rounded-xl bg-[#071A3D] hover:bg-[#0e2f5a] text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+                    title="إعادة تحميل المجموعات العامة قسرياً من Firestore"
+                  >
+                    <Cloud className="w-3.5 h-3.5 text-[#BCEBFF]" />
+                    <span>مزامنة كاملة إجبارية</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearPublicCache(true)}
+                    disabled={isSyncingCache}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>مسح كاش المحتوى العام</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sync Feedback Banner */}
+              {syncResultBanner && (
+                <div
+                  className={`p-3.5 rounded-2xl border text-xs font-bold flex items-center justify-between gap-3 ${
+                    syncResultBanner.type === 'success'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : 'bg-amber-50 border-amber-200 text-amber-900'
+                  }`}
+                >
+                  <span>{syncResultBanner.message}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSyncResultBanner(null)}
+                    className="p-1 rounded-lg hover:bg-black/5 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {/* Inline Confirmation for Clearing Public Cache (Preserves Student Data) */}
+              {confirmClearPublicCache && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-extrabold text-rose-900">
+                        تأكيد مسح ذاكرة التخزين المؤقت للمحتوى العام؟
+                      </p>
+                      <p className="text-[11px] text-rose-800 mt-0.5 leading-relaxed">
+                        سيتم حذف نسخ IndexedDB للمحتوى العام فقط (المقالات، الأخبار، الإعدادات، المصادر) وإعادة جلبها عند الحاجة. لن يتم المساس نهائياً ببيانات الطلاب الشخصية (الجدول الدراسي، المعدل التراكمي، المصادر الخاصة، أو الإعدادات).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleClearPublicCacheAdmin}
+                      disabled={isSyncingCache}
+                      className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer disabled:opacity-60"
+                    >
+                      تأكيد المسح الآمن
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmClearPublicCache(false)}
+                      className="px-4 py-1.5 rounded-xl bg-white text-slate-700 border border-slate-200 text-xs font-bold hover:bg-slate-100 cursor-pointer"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Status & Telemetry KPIs */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                    <span>حالة الاتصال والحصة</span>
+                    {cacheDiagnostics?.isOnline === false ? (
+                      <WifiOff className="w-4 h-4 text-slate-500" />
+                    ) : (
+                      <Wifi className="w-4 h-4 text-emerald-600" />
+                    )}
+                  </div>
+                  <p className="text-sm font-extrabold text-slate-900 mt-1.5">
+                    {cacheDiagnostics?.isQuotaExceeded
+                      ? 'تجاوز الحصة المجانية (وضع الكاش)'
+                      : cacheDiagnostics?.isOnline === false
+                      ? 'غير متصل بالإنترنت (محلي)'
+                      : 'متصل بالسحابة بشكل طبيعي'}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    آخر مزامنة ناجحة:{' '}
+                    {cacheDiagnostics?.lastSuccessSyncAt
+                      ? new Date(cacheDiagnostics.lastSuccessSyncAt).toLocaleString('ar-EG')
+                      : 'لم تتم مزامنة سحابية بعد'}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-blue-50 border border-blue-100">
+                  <div className="flex items-center justify-between text-xs font-bold text-blue-700">
+                    <span>محرك IndexedDB</span>
+                    <HardDrive className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <p className="text-sm font-extrabold text-blue-950 mt-1.5">
+                    {cacheDiagnostics?.indexedDbSupported ? 'مدعوم ومفعّل' : 'وضع الذاكرة الاحتياطي'}
+                  </p>
+                  <p className="text-[11px] text-blue-700 mt-1 font-mono">
+                    {((cacheDiagnostics?.totalCachedBytes ?? 0) / 1024).toFixed(1)} KB •{' '}
+                    {cacheDiagnostics?.totalCachedItems ?? 0} عنصر
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-700">
+                    <span>كفاءة التخزين المؤقت</span>
+                    <Activity className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <p className="text-2xl font-black font-mono text-emerald-900 mt-1">
+                    {cacheDiagnostics?.metrics.cacheHits ?? 0}
+                  </p>
+                  <p className="text-[11px] text-emerald-700 mt-0.5">
+                    نجاح كاش • تخطي {cacheDiagnostics?.metrics.skippedCollectionFetches ?? 0} مجموعة
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100">
+                  <div className="flex items-center justify-between text-xs font-bold text-indigo-700">
+                    <span>إجمالي قراءات Firestore بالجلسة</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        FirestoreAuditMetrics.reset();
+                        void refreshCacheDiagnostics();
+                        showToast('تم تصفير عداد قراءات الجلسة.');
+                      }}
+                      title="تصفير العداد"
+                      className="p-1 rounded-lg hover:bg-indigo-100 text-indigo-700 cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-2xl font-black font-mono text-indigo-950 mt-1">
+                    {cacheDiagnostics?.metrics.totalDocsRead ?? 0}
+                  </p>
+                  <p className="text-[11px] text-indigo-700 mt-0.5 font-mono">
+                    getDoc:{cacheDiagnostics?.metrics.getDocCalls ?? 0} · getDocs:
+                    {cacheDiagnostics?.metrics.getDocsCalls ?? 0} · manifest:
+                    {cacheDiagnostics?.metrics.manifestChecks ?? 0}
+                  </p>
+                </div>
+              </div>
+
+              {/* Per-collection IndexedDB diagnostics table */}
+              <div className="rounded-2xl border border-slate-200 overflow-hidden">
+                <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+                  <h3 className="text-xs font-extrabold text-slate-800">
+                    حالة المجموعات المخزنة محلياً (Public Collections Cache)
+                  </h3>
+                  <span className="text-[11px] text-slate-500">
+                    يتم حفظ بيانات الطلاب الشخصية بشكل منفصل ومحمي
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-100/70 text-slate-600 font-bold">
+                      <tr>
+                        <th className="py-2.5 px-3">القسم / المجموعة</th>
+                        <th className="py-2.5 px-3">الحالة</th>
+                        <th className="py-2.5 px-3">العناصر</th>
+                        <th className="py-2.5 px-3">الإصدار</th>
+                        <th className="py-2.5 px-3">المصدر</th>
+                        <th className="py-2.5 px-3">الصلاحية (TTL)</th>
+                        <th className="py-2.5 px-3">الحجم</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(cacheDiagnostics?.collections || []).map((col) => (
+                        <tr key={col.key} className="hover:bg-slate-50/70">
+                          <td className="py-2.5 px-3 font-bold text-slate-800">
+                            <div>{col.labelAr}</div>
+                            <div className="text-[10px] font-mono text-slate-400">{col.key}</div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                col.cached
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {col.cached ? 'مخزن محلياً' : 'غير محمّل بعد'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-slate-700">
+                            {col.itemCount}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-600">
+                            v{col.version}
+                            {col.cloudVersion !== null ? ` / سحابي v${col.cloudVersion}` : ''}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="text-[11px] font-bold text-slate-600">
+                              {col.source === 'cloud'
+                                ? 'سحابي'
+                                : col.source === 'cache'
+                                ? 'كاش محلي'
+                                : col.source === 'fallback'
+                                ? 'احتياطي'
+                                : '—'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-[11px] text-slate-600">
+                            {!col.cached ? (
+                              '—'
+                            ) : col.isExpired ? (
+                              <span className="text-amber-700 font-bold">منتهي (سيتم التحقق)</span>
+                            ) : (
+                              <span className="text-emerald-700 font-bold">ساري</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">
+                            {(col.byteSizeApprox / 1024).toFixed(1)} KB
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -2570,25 +3393,78 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({ onCl
           }
         >
           <div className="space-y-4 text-right">
-            {articlePreviewModal.imageUrl && (
+            {articlePreviewModal.coverImage && (
               <img
-                src={articlePreviewModal.imageUrl}
+                src={articlePreviewModal.coverImage}
                 alt={articlePreviewModal.title}
                 className="w-full h-48 object-cover rounded-2xl border border-slate-200 dark:border-white/10"
               />
             )}
             <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span>{articlePreviewModal.date || 'اليوم'}</span>
+              <span>{articlePreviewModal.createdAt ? new Date(articlePreviewModal.createdAt).toLocaleDateString('ar-EG') : 'اليوم'}</span>
               <span>•</span>
-              <span>{articlePreviewModal.readTime || '3 دقائق للقراءة'}</span>
+              <span>{articlePreviewModal.status === 'published' ? 'منشور' : 'مسودة'}</span>
             </div>
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-              {articlePreviewModal.excerpt}
-            </div>
+            {articlePreviewModal.subtitle && (
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                {articlePreviewModal.subtitle}
+              </div>
+            )}
             <div className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-line">
               {articlePreviewModal.content}
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* UNIFIED ADMIN ACTION CONFIRMATION MODAL */}
+      {confirmActionModal && (
+        <Modal
+          isOpen={Boolean(confirmActionModal)}
+          onClose={() => !isConfirmActionRunning && setConfirmActionModal(null)}
+          maxWidth="md"
+          title={confirmActionModal.title}
+          subtitle="يرجى التأكيد قبل تنفيذ الإجراء"
+          icon={<AlertTriangle className={`w-5 h-5 ${confirmActionModal.tone === 'danger' ? 'text-rose-600' : 'text-[#16958E]'}`} />}
+          footer={
+            <>
+              <button
+                type="button"
+                disabled={isConfirmActionRunning}
+                onClick={() => setConfirmActionModal(null)}
+                className="px-4 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-300 cursor-pointer disabled:opacity-50"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={isConfirmActionRunning}
+                onClick={async () => {
+                  setIsConfirmActionRunning(true);
+                  try {
+                    await confirmActionModal.onConfirm();
+                    setConfirmActionModal(null);
+                  } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : 'حدث خطأ أثناء تنفيذ العملية';
+                    showToast(msg);
+                  } finally {
+                    setIsConfirmActionRunning(false);
+                  }
+                }}
+                className={`px-5 py-2 rounded-xl text-white text-xs font-bold cursor-pointer disabled:opacity-50 ${
+                  confirmActionModal.tone === 'danger'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-[#16958E] hover:bg-[#127771]'
+                }`}
+              >
+                {isConfirmActionRunning ? 'جاري التنفيذ...' : confirmActionModal.confirmLabel}
+              </button>
+            </>
+          }
+        >
+          <p className="text-xs text-slate-700 leading-relaxed text-right">
+            {confirmActionModal.message}
+          </p>
         </Modal>
       )}
 

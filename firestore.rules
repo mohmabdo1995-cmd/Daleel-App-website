@@ -36,14 +36,26 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isPrimaryAdminEmail() {
+      return isVerifiedUser() && request.auth.token.email == 'mohmabdo1995@gmail.com';
+    }
+
     function isAdmin() {
       return isVerifiedUser() && (
-        request.auth.token.email == 'mohmabdo1995@gmail.com' ||
+        isPrimaryAdminEmail() ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
-    // --- Validation Blueprints ---
+    function isValidOptionalHttpsUrl(val, maxLen) {
+      return isValidString(val, 0, maxLen) && (val.size() == 0 || val.matches('^https?://.*'));
+    }
+
+    function isValidNonBlobUrl(val, minLen, maxLen) {
+      return isValidString(val, minLen, maxLen) && !val.matches('^blob:.*');
+    }
+
+    // --- Validation Blueprints: Student Accounts & Private Subcollections ---
     function isValidUserPreferences(prefs) {
       return prefs is map &&
         prefs.keys().hasAll(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects']) &&
@@ -146,6 +158,226 @@ service cloud.firestore {
         isValidString(data.updatedAt, 1, 50);
     }
 
+    // --- Validation Blueprints: Admin, Integrations & CMS Collections ---
+    function isValidAdminRecord(data, adminId) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'verifiedAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'role', 'verifiedAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == adminId &&
+        isValidString(data.email, 3, 254) &&
+        data.role in ['superadmin', 'admin'] &&
+        isValidString(data.verifiedAt, 1, 50) &&
+        isValidString(data.updatedAt, 1, 50);
+    }
+
+    function isValidAdminIntegration(data) {
+      return data.keys().hasAll(['folderName', 'updatedAt', 'disconnectedExplicitly']) &&
+        data.keys().hasOnly(['connectedEmail', 'folderId', 'folderName', 'connectedAt', 'lastVerifiedAt', 'updatedAt', 'disconnectedExplicitly']) &&
+        (!('connectedEmail' in data) || data.connectedEmail == null || isValidString(data.connectedEmail, 0, 254)) &&
+        (!('folderId' in data) || data.folderId == null || isValidString(data.folderId, 0, 256)) &&
+        isValidString(data.folderName, 1, 200) &&
+        (!('connectedAt' in data) || data.connectedAt == null || isValidString(data.connectedAt, 0, 50)) &&
+        (!('lastVerifiedAt' in data) || data.lastVerifiedAt == null || isValidString(data.lastVerifiedAt, 0, 50)) &&
+        isValidString(data.updatedAt, 1, 50) &&
+        data.disconnectedExplicitly is bool;
+    }
+
+    function isValidSiteConfigGeneral(data) {
+      return data is map &&
+        data.keys().size() >= 1 &&
+        data.keys().hasOnly([
+          'siteTitle', 'siteSubtitle', 'heroTitle', 'heroSubtitle', 'heroBadgeText',
+          'heroPrimaryBtnText', 'heroPrimaryBtnLink', 'telegramBotName', 'telegramBotLink',
+          'contactEmail', 'contactPhone', 'contactAddress', 'footerCopyright', 'footerAboutText',
+          'siteLogoUrl', 'heroBgUrl', 'primaryColor', 'seoTitle', 'seoDescription', 'seoKeywords',
+          'sectionVisibility', 'buttons', 'tickerSpeed', 'tickerTitle', 'tickerInitialized', 'updatedAt'
+        ]) &&
+        (!('siteTitle' in data) || isValidString(data.siteTitle, 0, 200)) &&
+        (!('siteSubtitle' in data) || isValidString(data.siteSubtitle, 0, 300)) &&
+        (!('heroTitle' in data) || isValidString(data.heroTitle, 0, 300)) &&
+        (!('heroSubtitle' in data) || isValidString(data.heroSubtitle, 0, 1000)) &&
+        (!('heroBadgeText' in data) || isValidString(data.heroBadgeText, 0, 200)) &&
+        (!('heroPrimaryBtnText' in data) || isValidString(data.heroPrimaryBtnText, 0, 100)) &&
+        (!('heroPrimaryBtnLink' in data) || isValidString(data.heroPrimaryBtnLink, 0, 500)) &&
+        (!('telegramBotName' in data) || isValidString(data.telegramBotName, 0, 150)) &&
+        (!('telegramBotLink' in data) || isValidString(data.telegramBotLink, 0, 500)) &&
+        (!('contactEmail' in data) || isValidString(data.contactEmail, 0, 254)) &&
+        (!('contactPhone' in data) || isValidString(data.contactPhone, 0, 60)) &&
+        (!('contactAddress' in data) || isValidString(data.contactAddress, 0, 300)) &&
+        (!('footerCopyright' in data) || isValidString(data.footerCopyright, 0, 500)) &&
+        (!('footerAboutText' in data) || isValidString(data.footerAboutText, 0, 2000)) &&
+        (!('siteLogoUrl' in data) || isValidNonBlobUrl(data.siteLogoUrl, 0, 2000)) &&
+        (!('heroBgUrl' in data) || isValidNonBlobUrl(data.heroBgUrl, 0, 2000)) &&
+        (!('primaryColor' in data) || isValidString(data.primaryColor, 0, 40)) &&
+        (!('seoTitle' in data) || isValidString(data.seoTitle, 0, 200)) &&
+        (!('seoDescription' in data) || isValidString(data.seoDescription, 0, 500)) &&
+        (!('seoKeywords' in data) || isValidString(data.seoKeywords, 0, 500)) &&
+        (!('sectionVisibility' in data) || data.sectionVisibility is map) &&
+        (!('buttons' in data) || (data.buttons is list && data.buttons.size() <= 20)) &&
+        (!('tickerSpeed' in data) || data.tickerSpeed in ['slow', 'normal', 'fast']) &&
+        (!('tickerTitle' in data) || isValidString(data.tickerTitle, 0, 150)) &&
+        (!('tickerInitialized' in data) || data.tickerInitialized is bool) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidSyncManifest(data) {
+      return data.keys().hasAll(['schemaVersion', 'updatedAt', 'versions']) &&
+        data.keys().hasOnly(['schemaVersion', 'updatedAt', 'versions', 'deleted', 'modifiedTerms', 'seededCollections']) &&
+        data.schemaVersion is int && data.schemaVersion >= 1 && data.schemaVersion <= 100 &&
+        isValidString(data.updatedAt, 1, 50) &&
+        data.versions is map &&
+        (!('deleted' in data) || data.deleted is map) &&
+        (!('seededCollections' in data) || data.seededCollections is map) &&
+        (!('modifiedTerms' in data) || (data.modifiedTerms is list && data.modifiedTerms.size() <= 150));
+    }
+
+    function isValidCollegeInfo(data) {
+      return data is map &&
+        data.keys().size() >= 1 &&
+        data.keys().hasOnly(['title', 'tagline', 'image', 'overview', 'creditSystem', 'survivalTips', 'customSections', 'updatedAt']) &&
+        (!('title' in data) || isValidString(data.title, 0, 300)) &&
+        (!('tagline' in data) || isValidString(data.tagline, 0, 300)) &&
+        (!('image' in data) || isValidNonBlobUrl(data.image, 0, 2000)) &&
+        (!('overview' in data) || isValidString(data.overview, 0, 8000)) &&
+        (!('creditSystem' in data) || isValidString(data.creditSystem, 0, 8000)) &&
+        (!('survivalTips' in data) || (data.survivalTips is list && data.survivalTips.size() <= 100)) &&
+        (!('customSections' in data) || (data.customSections is list && data.customSections.size() <= 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidArticle(data) {
+      return data.keys().hasAll(['title', 'content']) &&
+        data.keys().hasOnly(['id', 'title', 'subtitle', 'content', 'coverImage', 'category', 'tags', 'status', 'author', 'createdAt', 'updatedAt']) &&
+        (!('id' in data) || isValidId(data.id)) &&
+        isValidString(data.title, 1, 300) &&
+        (!('subtitle' in data) || isValidString(data.subtitle, 0, 500)) &&
+        isValidString(data.content, 1, 50000) &&
+        (!('coverImage' in data) || isValidNonBlobUrl(data.coverImage, 0, 2000)) &&
+        (!('category' in data) || isValidString(data.category, 0, 100)) &&
+        (!('tags' in data) || (data.tags is list && data.tags.size() <= 30 && (data.tags.size() == 0 || data.tags[0] is string))) &&
+        (!('status' in data) || data.status in ['draft', 'published']) &&
+        (!('author' in data) || isValidString(data.author, 0, 150)) &&
+        (!('createdAt' in data) || isValidString(data.createdAt, 0, 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidVideo(data) {
+      return data.keys().hasAll(['title', 'videoUrl']) &&
+        data.keys().hasOnly(['id', 'title', 'description', 'videoUrl', 'thumbnailUrl', 'duration', 'order', 'visible', 'fileType', 'createdAt', 'updatedAt']) &&
+        (!('id' in data) || isValidId(data.id)) &&
+        isValidString(data.title, 1, 300) &&
+        (!('description' in data) || isValidString(data.description, 0, 5000)) &&
+        isValidNonBlobUrl(data.videoUrl, 1, 4000) &&
+        (!('thumbnailUrl' in data) || isValidNonBlobUrl(data.thumbnailUrl, 0, 4000)) &&
+        (!('duration' in data) || isValidString(data.duration, 0, 50)) &&
+        (!('order' in data) || data.order is number) &&
+        (!('visible' in data) || data.visible is bool) &&
+        (!('fileType' in data) || isValidString(data.fileType, 0, 100)) &&
+        (!('createdAt' in data) || isValidString(data.createdAt, 0, 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidSubject(data, subjectId) {
+      return data.keys().hasAll(['id', 'nameAr']) &&
+        data.keys().hasOnly(['id', 'nameAr', 'nameEn', 'code', 'icon', 'color', 'image', 'description', 'credits', 'overview', 'keyTopics', 'studyTips', 'recommendedBooks', 'lectureTopics', 'visible', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.id == subjectId &&
+        isValidString(data.nameAr, 1, 200) &&
+        (!('nameEn' in data) || isValidString(data.nameEn, 0, 200)) &&
+        (!('code' in data) || isValidString(data.code, 0, 50)) &&
+        (!('icon' in data) || isValidString(data.icon, 0, 80)) &&
+        (!('color' in data) || isValidString(data.color, 0, 60)) &&
+        (!('image' in data) || isValidNonBlobUrl(data.image, 0, 2000)) &&
+        (!('description' in data) || isValidString(data.description, 0, 2000)) &&
+        (!('credits' in data) || (data.credits is number && data.credits >= 0 && data.credits <= 30)) &&
+        (!('overview' in data) || isValidString(data.overview, 0, 8000)) &&
+        (!('keyTopics' in data) || (data.keyTopics is list && data.keyTopics.size() <= 100)) &&
+        (!('studyTips' in data) || (data.studyTips is list && data.studyTips.size() <= 100)) &&
+        (!('recommendedBooks' in data) || (data.recommendedBooks is list && data.recommendedBooks.size() <= 100)) &&
+        (!('lectureTopics' in data) || (data.lectureTopics is list && data.lectureTopics.size() <= 200)) &&
+        (!('visible' in data) || data.visible is bool) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll(['title', 'content']) &&
+        data.keys().hasOnly(['id', 'title', 'content', 'badge', 'link', 'visible', 'createdAt', 'updatedAt']) &&
+        (!('id' in data) || isValidId(data.id)) &&
+        isValidString(data.title, 1, 300) &&
+        isValidString(data.content, 0, 5000) &&
+        (!('badge' in data) || isValidString(data.badge, 0, 60)) &&
+        (!('link' in data) || isValidString(data.link, 0, 1000)) &&
+        (!('visible' in data) || data.visible is bool) &&
+        (!('createdAt' in data) || isValidString(data.createdAt, 0, 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidMedia(data) {
+      return data.keys().hasAll(['name', 'url']) &&
+        data.keys().hasOnly(['id', 'name', 'url', 'type', 'size', 'category', 'visible', 'createdAt', 'updatedAt']) &&
+        (!('id' in data) || isValidId(data.id)) &&
+        isValidString(data.name, 1, 300) &&
+        isValidNonBlobUrl(data.url, 1, 4000) &&
+        (!('type' in data) || data.type in ['image', 'pdf', 'video', 'logo']) &&
+        (!('size' in data) || isValidString(data.size, 0, 60)) &&
+        (!('category' in data) || isValidString(data.category, 0, 100)) &&
+        (!('visible' in data) || data.visible is bool) &&
+        (!('createdAt' in data) || isValidString(data.createdAt, 0, 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidTickerItem(data) {
+      return data.keys().hasAll(['text']) &&
+        data.keys().hasOnly(['id', 'text', 'badge', 'link', 'visible', 'order', 'createdAt', 'updatedAt']) &&
+        (!('id' in data) || isValidId(data.id)) &&
+        isValidString(data.text, 1, 1000) &&
+        (!('badge' in data) || isValidString(data.badge, 0, 40)) &&
+        (!('link' in data) || isValidString(data.link, 0, 500)) &&
+        (!('visible' in data) || data.visible is bool) &&
+        (!('order' in data) || data.order is number) &&
+        (!('createdAt' in data) || isValidString(data.createdAt, 0, 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
+    function isValidDriveFile(data, docId) {
+      return data.keys().hasAll(['id', 'fileId', 'name', 'previewUrl']) &&
+        data.keys().hasOnly(['id', 'fileId', 'name', 'mimeType', 'sizeBytes', 'sizeFormatted', 'previewUrl', 'downloadUrl', 'thumbnailUrl', 'category', 'subject', 'uploadedAt', 'updatedAt', 'uploadedBy']) &&
+        isValidId(data.id) &&
+        data.id == docId &&
+        isValidString(data.fileId, 1, 200) &&
+        isValidString(data.name, 1, 300) &&
+        (!('mimeType' in data) || isValidString(data.mimeType, 0, 150)) &&
+        (!('sizeBytes' in data) || (data.sizeBytes is number && data.sizeBytes >= 0)) &&
+        (!('sizeFormatted' in data) || isValidString(data.sizeFormatted, 0, 60)) &&
+        isValidNonBlobUrl(data.previewUrl, 8, 1000) &&
+        (!('downloadUrl' in data) || isValidNonBlobUrl(data.downloadUrl, 0, 1000)) &&
+        (!('thumbnailUrl' in data) || isValidNonBlobUrl(data.thumbnailUrl, 0, 1000)) &&
+        (!('category' in data) || data.category in ['video', 'pdf', 'image', 'other']) &&
+        (!('subject' in data) || isValidString(data.subject, 0, 120)) &&
+        (!('uploadedAt' in data) || isValidString(data.uploadedAt, 0, 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50)) &&
+        (!('uploadedBy' in data) || isValidString(data.uploadedBy, 0, 254));
+    }
+
+    function isValidStudyResource(data) {
+      return data.keys().hasAll(['title', 'description']) &&
+        data.keys().hasOnly(['id', 'title', 'subjectId', 'subjectTag', 'category', 'description', 'link', 'url', 'isExternal', 'icon', 'order', 'isActive', 'createdAt', 'updatedAt']) &&
+        (!('id' in data) || isValidId(data.id)) &&
+        isValidString(data.title, 1, 300) &&
+        isValidString(data.description, 0, 4000) &&
+        (!('subjectId' in data) || isValidString(data.subjectId, 0, 120)) &&
+        (!('subjectTag' in data) || isValidString(data.subjectTag, 0, 120)) &&
+        (!('category' in data) || isValidString(data.category, 0, 60)) &&
+        (!('link' in data) || isValidNonBlobUrl(data.link, 0, 2000)) &&
+        (!('url' in data) || isValidNonBlobUrl(data.url, 0, 2000)) &&
+        (!('isExternal' in data) || data.isExternal is bool) &&
+        (!('icon' in data) || isValidString(data.icon, 0, 80)) &&
+        (!('order' in data) || data.order is number) &&
+        (!('isActive' in data) || data.isActive is bool) &&
+        (!('createdAt' in data) || isValidString(data.createdAt, 0, 50)) &&
+        (!('updatedAt' in data) || isValidString(data.updatedAt, 0, 50));
+    }
+
     function isValidMedicalTerm(data, termId) {
       return data.keys().hasAll(['id', 'term_en', 'term_en_lower', 'term_ar', 'synonyms', 'pronunciation', 'ipa', 'english_definition', 'arabic_definition', 'specialty', 'sources', 'verification_status', 'last_verified', 'search_tokens', 'created_at', 'updated_at']) &&
         data.keys().hasOnly(['id', 'term_en', 'term_en_lower', 'term_ar', 'synonyms', 'pronunciation', 'ipa', 'audio_url', 'english_definition', 'arabic_definition', 'specialty', 'sources', 'verification_status', 'last_verified', 'search_tokens', 'created_at', 'updated_at']) &&
@@ -182,6 +414,74 @@ service cloud.firestore {
         isValidString(data.updated_at, 1, 50);
     }
 
+    function isValidInnovaInfo(data, infoId) {
+      return data.keys().hasAll(['id', 'aboutTitle', 'aboutDescription', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'aboutTitle', 'aboutDescription', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.id == infoId &&
+        isValidString(data.aboutTitle, 1, 200) &&
+        isValidString(data.aboutDescription, 0, 5000) &&
+        isValidString(data.createdAt, 1, 50) &&
+        isValidString(data.updatedAt, 1, 50);
+    }
+
+    function isValidInnovaMember(data, memberId) {
+      return data.keys().hasAll(['id', 'name', 'position', 'photoUrl', 'order', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'position', 'photoUrl', 'photoStoragePath', 'order', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.id == memberId &&
+        isValidString(data.name, 2, 150) &&
+        isValidString(data.position, 2, 150) &&
+        isValidOptionalHttpsUrl(data.photoUrl, 2000) &&
+        (!('photoStoragePath' in data) || isValidString(data.photoStoragePath, 0, 500)) &&
+        data.order is number && data.order >= 0 && data.order <= 10000 &&
+        isValidString(data.createdAt, 1, 50) &&
+        isValidString(data.updatedAt, 1, 50);
+    }
+
+    function isValidInnovaContent(data, contentId) {
+      return data.keys().hasAll(['id', 'category', 'title', 'description', 'imageUrl', 'published', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'category', 'title', 'description', 'imageUrl', 'imageStoragePath', 'published', 'eventDate', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.id == contentId &&
+        data.category in ['articles', 'events'] &&
+        isValidString(data.title, 2, 250) &&
+        isValidString(data.description, 2, 8000) &&
+        isValidOptionalHttpsUrl(data.imageUrl, 2000) &&
+        (!('imageStoragePath' in data) || isValidString(data.imageStoragePath, 0, 500)) &&
+        data.published is bool &&
+        (!('eventDate' in data) || isValidString(data.eventDate, 0, 40)) &&
+        isValidString(data.createdAt, 1, 50) &&
+        isValidString(data.updatedAt, 1, 50);
+    }
+
+    // --- Admin Access Control & Integrations (Strict Admin Only) ---
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && isVerifiedUser() && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(adminId) && isAdmin() && isValidAdminRecord(incoming(), adminId);
+      allow delete: if isValidId(adminId) && isAdmin() && adminId != request.auth.uid;
+    }
+
+    match /admin_integrations/{integrationId} {
+      allow get: if isValidId(integrationId) && isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isValidId(integrationId) && isAdmin() && isValidAdminIntegration(incoming());
+      allow delete: if isValidId(integrationId) && isAdmin();
+    }
+
+    match /admin_logs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(logId) && isAdmin() &&
+        incoming().keys().hasAll(['action', 'timestamp']) &&
+        incoming().keys().hasOnly(['action', 'details', 'timestamp']) &&
+        isValidString(incoming().action, 1, 200) &&
+        (!('details' in incoming()) || isValidString(incoming().details, 0, 2000)) &&
+        isValidString(incoming().timestamp, 1, 50);
+      allow update, delete: if false;
+    }
+
     // --- Private User Account Data (Strict Owner Isolation & PII Protection) ---
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -197,7 +497,6 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'college', 'academicYear', 'preferences', 'updatedAt', 'lastLoginAt']);
       allow delete: if isValidId(userId) && isOwner(userId) && isVerifiedUser();
 
-      // User Personal Lecture Schedules
       match /lectures/{lectureId} {
         allow get: if isValidId(userId) && isValidId(lectureId) && (isOwner(userId) || isAdmin());
         allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
@@ -214,7 +513,6 @@ service cloud.firestore {
         allow delete: if isValidId(userId) && isValidId(lectureId) && isOwner(userId) && isVerifiedUser();
       }
 
-      // User GPA Courses
       match /gpa_courses/{courseId} {
         allow get: if isValidId(userId) && isValidId(courseId) && (isOwner(userId) || isAdmin());
         allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
@@ -230,7 +528,6 @@ service cloud.firestore {
         allow delete: if isValidId(userId) && isValidId(courseId) && isOwner(userId) && isVerifiedUser();
       }
 
-      // User Personal Study Resources
       match /personal_resources/{resourceId} {
         allow get: if isValidId(userId) && isValidId(resourceId) && (isOwner(userId) || isAdmin());
         allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
@@ -247,7 +544,6 @@ service cloud.firestore {
         allow delete: if isValidId(userId) && isValidId(resourceId) && isOwner(userId) && isVerifiedUser();
       }
 
-      // User Subject Progress & Personal Notes
       match /subject_progress/{subjectId} {
         allow get: if isValidId(userId) && isValidId(subjectId) && (isOwner(userId) || isAdmin());
         allow list: if (isOwner(userId) && existing().userId == request.auth.uid) || isAdmin();
@@ -265,91 +561,78 @@ service cloud.firestore {
       }
     }
 
-    // --- Existing Public / Admin CMS Collections ---
+    // --- Publicly Readable, Strictly Admin-Managed CMS & Catalog Collections ---
     match /site_config/{configId} {
-      allow read, write: if true;
+      allow get: if isValidId(configId);
+      allow list: if true;
+      allow create, update: if isValidId(configId) && isAdmin() && (
+        (configId == 'general' && isValidSiteConfigGeneral(incoming())) ||
+        (configId == 'sync_manifest' && isValidSyncManifest(incoming()))
+      );
+      allow delete: if isValidId(configId) && isAdmin();
     }
 
     match /college_info/{infoId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.title, 1, 300) &&
-        request.resource.data.overview is string
-      );
-      allow delete: if isAdmin();
+      allow get: if isValidId(infoId);
+      allow list: if true;
+      allow create, update: if isValidId(infoId) && isAdmin() && isValidCollegeInfo(incoming());
+      allow delete: if isValidId(infoId) && isAdmin();
     }
 
     match /articles/{articleId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.title, 2, 300) &&
-        request.resource.data.content is string
-      );
-      allow delete: if isAdmin() || articleId != 'permanent_system_article';
+      allow get: if isValidId(articleId);
+      allow list: if true;
+      allow create, update: if isValidId(articleId) && isAdmin() && isValidArticle(incoming());
+      allow delete: if isValidId(articleId) && isAdmin();
     }
 
     match /videos/{videoId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.title, 2, 300) &&
-        request.resource.data.url is string
-      );
-      allow delete: if isAdmin() || videoId != 'permanent_system_video';
+      allow get: if isValidId(videoId);
+      allow list: if true;
+      allow create, update: if isValidId(videoId) && isAdmin() && isValidVideo(incoming());
+      allow delete: if isValidId(videoId) && isAdmin();
     }
 
     match /subjects_data/{subjectId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.nameAr, 2, 200)
-      );
-      allow delete: if isAdmin() || true;
+      allow get: if isValidId(subjectId);
+      allow list: if true;
+      allow create, update: if isValidId(subjectId) && isAdmin() && isValidSubject(incoming(), subjectId);
+      allow delete: if isValidId(subjectId) && isAdmin();
     }
 
     match /announcements/{annId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.title, 2, 300)
-      );
-      allow delete: if true;
+      allow get: if isValidId(annId);
+      allow list: if true;
+      allow create, update: if isValidId(annId) && isAdmin() && isValidAnnouncement(incoming());
+      allow delete: if isValidId(annId) && isAdmin();
     }
 
     match /media/{mediaId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.name, 1, 300) &&
-        request.resource.data.url is string
-      );
-      allow delete: if true;
+      allow get: if isValidId(mediaId);
+      allow list: if true;
+      allow create, update: if isValidId(mediaId) && isAdmin() && isValidMedia(incoming());
+      allow delete: if isValidId(mediaId) && isAdmin();
     }
 
     match /ticker_items/{tickerId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.text, 1, 1000) &&
-        (!('badge' in request.resource.data) || isValidString(request.resource.data.badge, 0, 40)) &&
-        (!('link' in request.resource.data) || isValidString(request.resource.data.link, 0, 500)) &&
-        (!('visible' in request.resource.data) || request.resource.data.visible is bool) &&
-        (!('order' in request.resource.data) || request.resource.data.order is number)
-      );
-      allow delete: if true;
+      allow get: if isValidId(tickerId);
+      allow list: if true;
+      allow create, update: if isValidId(tickerId) && isAdmin() && isValidTickerItem(incoming());
+      allow delete: if isValidId(tickerId) && isAdmin();
     }
 
     match /drive_files/{fileId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.name, 1, 300) &&
-        request.resource.data.fileId is string
-      );
-      allow delete: if true;
+      allow get: if isValidId(fileId);
+      allow list: if true;
+      allow create, update: if isValidId(fileId) && isAdmin() && isValidDriveFile(incoming(), fileId);
+      allow delete: if isValidId(fileId) && isAdmin();
     }
 
     match /study_resources/{resourceId} {
-      allow read: if true;
-      allow create, update: if isAdmin() || (
-        isValidString(request.resource.data.title, 2, 300) &&
-        request.resource.data.description is string
-      );
-      allow delete: if true;
+      allow get: if isValidId(resourceId);
+      allow list: if true;
+      allow create, update: if isValidId(resourceId) && isAdmin() && isValidStudyResource(incoming());
+      allow delete: if isValidId(resourceId) && isAdmin();
     }
 
     match /medical_terms/{termId} {
@@ -380,11 +663,41 @@ service cloud.firestore {
       allow delete: if isValidId(termId) && isAdmin();
     }
 
-    match /admin_logs/{logId} {
-      allow read: if isAdmin();
-      allow create: if request.resource.data.action is string &&
-                       request.resource.data.timestamp is string;
-      allow update, delete: if false;
+    // --- INNOVA Association Collections (Public Read, Strict Verified Admin Write) ---
+    match /innova_info/{infoId} {
+      allow get: if isValidId(infoId);
+      allow list: if true;
+      allow create: if isValidId(infoId) && isAdmin() && isValidInnovaInfo(incoming(), infoId);
+      allow update: if isValidId(infoId) && isAdmin() &&
+        isValidInnovaInfo(incoming(), infoId) &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['aboutTitle', 'aboutDescription', 'updatedAt']);
+      allow delete: if isValidId(infoId) && isAdmin();
+    }
+
+    match /innova_members/{memberId} {
+      allow get: if isValidId(memberId);
+      allow list: if true;
+      allow create: if isValidId(memberId) && isAdmin() && isValidInnovaMember(incoming(), memberId);
+      allow update: if isValidId(memberId) && isAdmin() &&
+        isValidInnovaMember(incoming(), memberId) &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'position', 'photoUrl', 'photoStoragePath', 'order', 'updatedAt']);
+      allow delete: if isValidId(memberId) && isAdmin();
+    }
+
+    match /innova_contents/{contentId} {
+      allow get: if isValidId(contentId) && (existing().published == true || isAdmin());
+      allow list: if existing().published == true || isAdmin();
+      allow create: if isValidId(contentId) && isAdmin() && isValidInnovaContent(incoming(), contentId);
+      allow update: if isValidId(contentId) && isAdmin() &&
+        isValidInnovaContent(incoming(), contentId) &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['category', 'title', 'description', 'imageUrl', 'imageStoragePath', 'published', 'eventDate', 'updatedAt']);
+      allow delete: if isValidId(contentId) && isAdmin();
     }
   }
 }

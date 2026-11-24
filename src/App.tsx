@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ActivePage, SubjectId } from './types';
 import { NotificationService } from './services/notifications';
-import { FirebaseService, SiteConfig, DEFAULT_SITE_CONFIG } from './services/firebase';
-import { AdminAuthService } from './services/adminAuth';
+import {
+  FirebaseService,
+  SiteConfig,
+  DEFAULT_SITE_CONFIG,
+  FIRESTORE_QUOTA_UPGRADE_URL,
+} from './services/firebase';
+import { FIRESTORE_QUOTA_AR_MESSAGE } from './services/userAccount';
+import { AdminAuthService, AdminAuthSnapshot } from './services/adminAuth';
 import { useAuth } from './contexts/AuthContext';
 import {
   NavRouteState,
@@ -36,6 +42,7 @@ import { NewsTickerBar } from './components/NewsTickerBar';
 import { UserAuthModal } from './components/auth/UserAuthModal';
 import { UserProfileModal } from './components/auth/UserProfileModal';
 import { MedicalDictionarySection } from './components/MedicalDictionarySection';
+import { InnovaAssociationSection } from './components/InnovaAssociationSection';
 
 export default function App() {
   const {
@@ -66,15 +73,28 @@ export default function App() {
   const activeArticleId = navState.articleId;
   const activeVideoId = navState.videoId;
   const activeTermId = navState.termId;
+  const activeInnovaContentId = navState.innovaContentId;
 
   // Real-time Firestore Site Config
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(DEFAULT_SITE_CONFIG);
 
-  // Hidden Admin State synchronized with URL & History
+  // Hidden Admin State synchronized with URL, History & Persistent Firebase Auth
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => Boolean(navState.isAdmin));
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() =>
-    AdminAuthService.isAuthenticated()
-  );
+  const [adminAuthState, setAdminAuthState] = useState<AdminAuthSnapshot>({
+    checking: true,
+    isAuthenticated: false,
+    email: null,
+    uid: null,
+    verifiedBy: null,
+    error: null,
+  });
+
+  useEffect(() => {
+    const unsubscribe = AdminAuthService.subscribeAdminAuthState((snapshot) => {
+      setAdminAuthState(snapshot);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // App-level Modals
   const [isGpaOpen, setIsGpaOpen] = useState(navState.modal === 'gpa');
@@ -114,6 +134,7 @@ export default function App() {
         articleId?: string;
         videoId?: string;
         termId?: string;
+        innovaContentId?: string;
         modal?: NavModalType;
         isAdmin?: boolean;
         replace?: boolean;
@@ -145,6 +166,12 @@ export default function App() {
           : page === 'dictionary'
           ? options.termId
           : undefined;
+      const targetInnovaContentId =
+        options && 'innovaContentId' in options
+          ? options.innovaContentId
+          : page === 'innova'
+          ? options?.innovaContentId
+          : undefined;
       const targetModal: NavModalType = options && 'modal' in options ? (options.modal ?? null) : null;
       const targetIsAdmin = options?.isAdmin ?? false;
 
@@ -156,6 +183,7 @@ export default function App() {
           articleId: targetArticleId,
           videoId: targetVideoId,
           termId: targetTermId,
+          innovaContentId: targetInnovaContentId,
           modal: targetModal,
           isAdmin: targetIsAdmin,
         })
@@ -192,6 +220,7 @@ export default function App() {
         articleId: targetArticleId,
         videoId: targetVideoId,
         termId: targetTermId,
+        innovaContentId: targetInnovaContentId,
         modal: targetModal,
         isAdmin: targetIsAdmin,
         scrollY: options?.preserveScroll ? currentScrollY : 0,
@@ -259,9 +288,6 @@ export default function App() {
       const hash = window.location.hash;
       const adminActive = pathname === '/admin' || hash === '#admin';
       setIsAdminRoute(adminActive);
-      if (adminActive) {
-        setIsAdminAuthenticated(AdminAuthService.isAuthenticated());
-      }
       return adminActive;
     };
 
@@ -530,16 +556,44 @@ export default function App() {
   const todayStr = new Date().toISOString().split('T')[0];
   const upcomingCount = lectures.filter((l) => l.date >= todayStr && !l.completed).length;
 
-  // 1. If user is on /admin route and authenticated -> Render Full Admin Dashboard
-  if (isAdminRoute && isAdminAuthenticated) {
-    return <AdminDashboardLayout onCloseAdmin={exitAdminView} />;
+  // 1. If user is on /admin route and checking persistent Firebase session -> Wait gracefully
+  if (isAdminRoute && adminAuthState.checking) {
+    return (
+      <div
+        className="min-h-screen flex flex-col items-center justify-center bg-slate-100 dark:bg-[#071A3D] text-[#071A3D] dark:text-white font-cairo p-6"
+        dir="rtl"
+      >
+        <div className="w-12 h-12 rounded-2xl border-4 border-[#16958E]/30 border-t-[#16958E] animate-spin mb-4" />
+        <p className="text-sm font-extrabold font-tajawal">جاري التحقق من جلسة المشرف...</p>
+        <p className="text-xs text-slate-500 dark:text-slate-300 mt-1">استعادة الجلسة الموثّقة عبر Firebase</p>
+      </div>
+    );
   }
 
-  // 2. If user is on /admin route but not authenticated -> Render Admin Password Login Screen
-  if (isAdminRoute && !isAdminAuthenticated) {
+  // 2. If user is on /admin route and verified -> Render Full Admin Dashboard
+  if (isAdminRoute && adminAuthState.isAuthenticated) {
+    return (
+      <AdminDashboardLayout
+        adminEmail={adminAuthState.email}
+        onCloseAdmin={exitAdminView}
+      />
+    );
+  }
+
+  // 3. If user is on /admin route but not authenticated -> Render Verified Admin Login Screen
+  if (isAdminRoute && !adminAuthState.isAuthenticated) {
     return (
       <AdminLoginModal
-        onSuccess={() => setIsAdminAuthenticated(true)}
+        currentSignedInEmail={adminAuthState.email}
+        authErrorMessage={adminAuthState.error}
+        onSuccess={() => {
+          setAdminAuthState((prev) => ({
+            ...prev,
+            checking: false,
+            isAuthenticated: true,
+            error: null,
+          }));
+        }}
         onCancel={exitAdminView}
       />
     );
@@ -573,12 +627,24 @@ export default function App() {
 
       {syncError && (
         <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4">
-          <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center justify-between gap-3">
-            <span>{syncError}</span>
+          <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100 text-xs font-bold flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span>{syncError}</span>
+              {syncError === FIRESTORE_QUOTA_AR_MESSAGE && (
+                <a
+                  href={FIRESTORE_QUOTA_UPGRADE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-4 text-[#16958E] dark:text-[#BCEBFF] hover:opacity-80"
+                >
+                  إدارة الحصة / ترقية الخطة في Firebase
+                </a>
+              )}
+            </div>
             <button
               type="button"
               onClick={clearSyncError}
-              className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 dark:bg-rose-900/60 text-rose-900 dark:text-rose-100 text-[11px] font-bold cursor-pointer"
+              className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/60 text-amber-900 dark:text-amber-100 text-[11px] font-bold cursor-pointer"
             >
               إغلاق
             </button>
@@ -591,6 +657,7 @@ export default function App() {
         {activePage === 'landing' && (
           <LandingHero
             onEnter={() => handleNavigate('main')}
+            onOpenInnova={() => handleNavigate('innova')}
             siteConfig={siteConfig}
           />
         )}
@@ -685,11 +752,28 @@ export default function App() {
             onSelectTerm={(termId) =>
               navigateTo('dictionary', { termId, preserveScroll: true })
             }
-            onCloseTerm={() => {
+              onCloseTerm={() => {
               if (currentNavRef.current.index > 0 && currentNavRef.current.termId) {
                 window.history.back();
               } else {
                 navigateTo('dictionary', { termId: undefined, replace: true, preserveScroll: true });
+              }
+            }}
+          />
+        )}
+
+        {activePage === 'innova' && (
+          <InnovaAssociationSection
+            onBack={() => goBackInHistory('main')}
+            selectedContentId={activeInnovaContentId}
+            onSelectContent={(contentId) =>
+              navigateTo('innova', { innovaContentId: contentId, preserveScroll: true })
+            }
+            onCloseContent={() => {
+              if (currentNavRef.current.index > 0 && currentNavRef.current.innovaContentId) {
+                window.history.back();
+              } else {
+                navigateTo('innova', { innovaContentId: undefined, replace: true, preserveScroll: true });
               }
             }}
           />

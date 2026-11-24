@@ -1,62 +1,155 @@
 {
   "entities": {
+    "admins": {
+      "title": "Verified Platform Administrators",
+      "description": "Authorized admin role verification records keyed by Firebase Auth UID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Admin Firebase Auth UID" },
+        "email": { "type": "string", "format": "email", "maxLength": 254, "description": "Verified administrator Google email" },
+        "role": { "type": "string", "enum": ["superadmin", "admin"], "description": "Administrative role level" },
+        "verifiedAt": { "type": "string", "maxLength": 50, "description": "Initial verification ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last verification update ISO timestamp" }
+      },
+      "required": ["uid", "email", "role", "verifiedAt", "updatedAt"]
+    },
+    "admin_integrations": {
+      "title": "Administrator Cloud Integrations Metadata",
+      "description": "Non-secret integration state metadata (e.g. Google Drive account email and app folder ID; never stores OAuth tokens)",
+      "type": "object",
+      "properties": {
+        "connectedEmail": { "type": "string", "maxLength": 254, "description": "Linked Google Drive account email or null" },
+        "folderId": { "type": "string", "maxLength": 256, "description": "Google Drive app folder ID or null" },
+        "folderName": { "type": "string", "maxLength": 200, "description": "Google Drive dedicated folder display name" },
+        "connectedAt": { "type": "string", "maxLength": 50, "description": "Initial link ISO timestamp" },
+        "lastVerifiedAt": { "type": "string", "maxLength": 50, "description": "Last successful OAuth verification ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last metadata update ISO timestamp" },
+        "disconnectedExplicitly": { "type": "boolean", "description": "Whether admin explicitly disconnected Drive" }
+      },
+      "required": ["folderName", "updatedAt", "disconnectedExplicitly"]
+    },
     "site_config": {
       "title": "Site Configuration",
-      "description": "Global website settings, text content, section visibility, and theme colors",
+      "description": "Global website settings, text content, section visibility, theme colors, and sync manifest metadata",
+      "type": "object",
       "properties": {
-        "heroTitle": { "type": "string", "description": "Hero section title" },
-        "heroSubtitle": { "type": "string", "description": "Hero section subtitle" },
-        "heroButtonText": { "type": "string", "description": "Hero button text" },
-        "heroButtonLink": { "type": "string", "description": "Hero button link" },
-        "telegramBotLink": { "type": "string", "description": "Telegram bot URL" },
-        "telegramBotName": { "type": "string", "description": "Telegram bot username" },
-        "footerText": { "type": "string", "description": "Footer copyright and overview text" },
-        "contactEmail": { "type": "string", "description": "Contact email" },
-        "contactPhone": { "type": "string", "description": "Contact phone number" },
-        "contactAddress": { "type": "string", "description": "College address" },
-        "siteLogoUrl": { "type": "string", "description": "Custom logo URL" },
-        "primaryColor": { "type": "string", "description": "Primary theme accent color" },
-        "seoTitle": { "type": "string", "description": "SEO page title" },
-        "seoDescription": { "type": "string", "description": "SEO meta description" },
+        "siteTitle": { "type": "string", "maxLength": 200, "description": "Platform main Arabic title" },
+        "siteSubtitle": { "type": "string", "maxLength": 300, "description": "Platform subtitle" },
+        "heroTitle": { "type": "string", "maxLength": 300, "description": "Hero section title" },
+        "heroSubtitle": { "type": "string", "maxLength": 1000, "description": "Hero section subtitle" },
+        "heroBadgeText": { "type": "string", "maxLength": 200, "description": "Hero welcome badge text" },
+        "heroPrimaryBtnText": { "type": "string", "maxLength": 100, "description": "Primary hero CTA label" },
+        "heroPrimaryBtnLink": { "type": "string", "maxLength": 500, "description": "Primary hero CTA destination" },
+        "telegramBotLink": { "type": "string", "maxLength": 500, "description": "Telegram bot URL" },
+        "telegramBotName": { "type": "string", "maxLength": 150, "description": "Telegram bot username" },
+        "footerCopyright": { "type": "string", "maxLength": 500, "description": "Footer copyright line" },
+        "footerAboutText": { "type": "string", "maxLength": 2000, "description": "Footer overview text" },
+        "contactEmail": { "type": "string", "maxLength": 254, "description": "Contact email" },
+        "contactPhone": { "type": "string", "maxLength": 60, "description": "Contact phone number" },
+        "contactAddress": { "type": "string", "maxLength": 300, "description": "College address" },
+        "siteLogoUrl": { "type": "string", "maxLength": 2000, "description": "Custom logo URL" },
+        "heroBgUrl": { "type": "string", "maxLength": 2000, "description": "Hero background image URL" },
+        "primaryColor": { "type": "string", "maxLength": 40, "description": "Primary theme accent color" },
+        "seoTitle": { "type": "string", "maxLength": 200, "description": "SEO page title" },
+        "seoDescription": { "type": "string", "maxLength": 500, "description": "SEO meta description" },
+        "seoKeywords": { "type": "string", "maxLength": 500, "description": "SEO keywords" },
         "tickerSpeed": { "type": "string", "enum": ["slow", "normal", "fast"], "description": "News ticker animation speed" },
-        "tickerTitle": { "type": "string", "description": "News ticker live badge title" },
+        "tickerTitle": { "type": "string", "maxLength": 150, "description": "News ticker live badge title" },
         "tickerInitialized": { "type": "boolean", "description": "Whether default ticker items have been seeded once" },
-        "sectionVisibility": {
-          "type": "object",
-          "description": "ON/OFF visibility switches for website sections and components"
-        }
+        "sectionVisibility": { "type": "object", "description": "ON/OFF visibility switches for website sections and components" },
+        "buttons": { "type": "array", "description": "Landing/header quick action button definitions" },
+        "schemaVersion": { "type": "number", "description": "Manifest schema version when docId is sync_manifest" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" },
+        "versions": { "type": "object", "description": "Per-collection incremental version numbers for Smart Cache delta sync" },
+        "deleted": { "type": "object", "description": "Per-collection tombstone deletion records" },
+        "modifiedTerms": { "type": "array", "description": "Recently updated medical term IDs for delta fetching" },
+        "seededCollections": { "type": "object", "description": "Flags marking collections initialized or intentionally emptied by admin" }
       }
     },
-    "subjects": {
-      "title": "Academic Subjects",
-      "description": "List of college courses and academic subjects",
+    "articles": {
+      "title": "Academic Articles",
+      "description": "Published and draft university articles managed via Admin Dashboard",
+      "type": "object",
       "properties": {
-        "nameAr": { "type": "string", "description": "Arabic subject name" },
-        "nameEn": { "type": "string", "description": "English subject name" },
-        "code": { "type": "string", "description": "Subject course code" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Article document identifier" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Article headline" },
+        "subtitle": { "type": "string", "maxLength": 500, "description": "Optional subtitle" },
+        "content": { "type": "string", "maxLength": 50000, "description": "Full article body text" },
+        "coverImage": { "type": "string", "maxLength": 2000, "description": "Optional cover image HTTPS URL" },
+        "category": { "type": "string", "maxLength": 100, "description": "Article category" },
+        "tags": { "type": "array", "description": "Up to 30 topic tags" },
+        "status": { "type": "string", "enum": ["draft", "published"], "description": "Editorial publication status" },
+        "author": { "type": "string", "maxLength": 150, "description": "Article author name" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["title", "content"]
+    },
+    "videos": {
+      "title": "Educational Videos",
+      "description": "University educational video library metadata and playback links (never temporary blob URLs)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Video document identifier" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Video title" },
+        "description": { "type": "string", "maxLength": 5000, "description": "Video description" },
+        "videoUrl": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Persistent video playback URL or Drive preview URL" },
+        "thumbnailUrl": { "type": "string", "maxLength": 4000, "description": "Optional thumbnail URL" },
+        "duration": { "type": "string", "maxLength": 50, "description": "Formatted duration e.g. 12:30" },
+        "order": { "type": "number", "description": "Display order index" },
+        "visible": { "type": "boolean", "description": "Public visibility switch" },
+        "fileType": { "type": "string", "maxLength": 100, "description": "MIME type or source type" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["title", "videoUrl"]
+    },
+    "subjects_data": {
+      "title": "Academic Subjects",
+      "description": "List of college courses, credit hours, descriptions, and lecture topic outlines",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Subject ID" },
+        "nameAr": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Arabic subject name" },
+        "nameEn": { "type": "string", "maxLength": 200, "description": "English subject name" },
+        "code": { "type": "string", "maxLength": 50, "description": "Subject course code" },
+        "icon": { "type": "string", "maxLength": 80, "description": "Icon identifier" },
+        "color": { "type": "string", "maxLength": 60, "description": "Theme color class or hex" },
         "credits": { "type": "number", "description": "Credit hours" },
-        "description": { "type": "string", "description": "Short description" },
-        "image": { "type": "string", "description": "Image URL" },
-        "visible": { "type": "boolean", "description": "ON/OFF visibility switch" }
-      }
+        "description": { "type": "string", "maxLength": 2000, "description": "Short description" },
+        "overview": { "type": "string", "maxLength": 8000, "description": "Detailed academic overview" },
+        "image": { "type": "string", "maxLength": 2000, "description": "Image URL" },
+        "keyTopics": { "type": "array", "description": "Core syllabus topics" },
+        "studyTips": { "type": "array", "description": "Subject-specific study tips" },
+        "recommendedBooks": { "type": "array", "description": "Recommended textbook titles" },
+        "lectureTopics": { "type": "array", "description": "Structured lecture units" },
+        "visible": { "type": "boolean", "description": "ON/OFF visibility switch" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "nameAr"]
     },
     "announcements": {
       "title": "Announcements & Ads",
       "description": "Website news, announcements and advertisement banners",
+      "type": "object",
       "properties": {
-        "title": { "type": "string", "description": "Announcement title" },
-        "content": { "type": "string", "description": "Announcement text content" },
-        "badge": { "type": "string", "description": "Badge label e.g. هام / جديد" },
-        "link": { "type": "string", "description": "External action link" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Announcement ID" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Announcement title" },
+        "content": { "type": "string", "maxLength": 5000, "description": "Announcement text content" },
+        "badge": { "type": "string", "maxLength": 60, "description": "Badge label e.g. هام / جديد" },
+        "link": { "type": "string", "maxLength": 1000, "description": "External action link" },
         "visible": { "type": "boolean", "description": "ON/OFF visibility switch" },
-        "createdAt": { "type": "string", "description": "Timestamp" }
-      }
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["title", "content"]
     },
     "ticker_items": {
       "title": "News Ticker Items",
       "description": "Real-time breaking news and alert headlines shown in the top scrolling ticker bar",
       "type": "object",
       "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Ticker ID" },
         "text": { "type": "string", "minLength": 1, "maxLength": 1000, "description": "Headline text" },
         "badge": { "type": "string", "maxLength": 40, "description": "Optional badge label" },
         "link": { "type": "string", "maxLength": 500, "description": "Optional external URL or internal section" },
@@ -65,45 +158,79 @@
         "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
         "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
       },
-      "required": ["text", "visible", "order"]
+      "required": ["text"]
     },
     "media": {
       "title": "Media Files & Assets",
       "description": "Uploaded logos, images, PDFs, videos, and backgrounds",
+      "type": "object",
       "properties": {
-        "name": { "type": "string", "description": "Media item name" },
-        "url": { "type": "string", "description": "Direct file or image URL" },
-        "type": { "type": "string", "description": "image | pdf | video | logo" },
-        "size": { "type": "string", "description": "File size label" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Media ID" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Media item name" },
+        "url": { "type": "string", "minLength": 1, "maxLength": 4000, "description": "Direct file or image URL" },
+        "type": { "type": "string", "enum": ["image", "pdf", "video", "logo"], "description": "Media asset type" },
+        "size": { "type": "string", "maxLength": 60, "description": "File size label" },
+        "category": { "type": "string", "maxLength": 100, "description": "Optional media category" },
         "visible": { "type": "boolean", "description": "ON/OFF visibility switch" },
-        "createdAt": { "type": "string", "description": "Timestamp" }
-      }
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["name", "url"]
+    },
+    "drive_files": {
+      "title": "Google Drive Hosted Files",
+      "description": "Indexed file metadata for educational files stored in the connected Google Drive folder",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Document ID (drive_<fileId>)" },
+        "fileId": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Google Drive file ID" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 300, "description": "File display name" },
+        "mimeType": { "type": "string", "maxLength": 150, "description": "MIME type" },
+        "sizeBytes": { "type": "number", "description": "File size in bytes" },
+        "sizeFormatted": { "type": "string", "maxLength": 60, "description": "Formatted Arabic file size" },
+        "previewUrl": { "type": "string", "minLength": 8, "maxLength": 1000, "description": "Google Drive preview link" },
+        "downloadUrl": { "type": "string", "maxLength": 1000, "description": "Google Drive download link" },
+        "thumbnailUrl": { "type": "string", "maxLength": 1000, "description": "Google Drive thumbnail link" },
+        "category": { "type": "string", "enum": ["video", "pdf", "image", "other"], "description": "Academic asset category" },
+        "subject": { "type": "string", "maxLength": 120, "description": "Subject tag" },
+        "uploadedAt": { "type": "string", "maxLength": 50, "description": "Upload ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" },
+        "uploadedBy": { "type": "string", "maxLength": 254, "description": "Uploader email or label" }
+      },
+      "required": ["id", "fileId", "name", "previewUrl"]
     },
     "admin_logs": {
       "title": "Admin Action Logs",
-      "description": "History of admin edits and settings changes",
+      "description": "Audit trail of administrator edits, settings changes, and restores",
+      "type": "object",
       "properties": {
-        "action": { "type": "string", "description": "Action performed" },
-        "details": { "type": "string", "description": "Details of change" },
-        "timestamp": { "type": "string", "description": "ISO timestamp" }
-      }
+        "action": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Action performed" },
+        "details": { "type": "string", "maxLength": 2000, "description": "Details of change" },
+        "timestamp": { "type": "string", "minLength": 1, "maxLength": 50, "description": "ISO timestamp" }
+      },
+      "required": ["action", "timestamp"]
     },
     "study_resources": {
       "title": "Study Resources & Digital Library",
       "description": "Dynamic digital library resources, study references, external books and materials",
+      "type": "object",
       "properties": {
-        "title": { "type": "string", "description": "Source title (Arabic/English)" },
-        "description": { "type": "string", "description": "Source description" },
-        "url": { "type": "string", "description": "Source destination external URL" },
-        "link": { "type": "string", "description": "Source URL link" },
-        "subjectId": { "type": "string", "description": "Associated subject identifier or general" },
-        "subjectTag": { "type": "string", "description": "Subject tag label" },
-        "category": { "type": "string", "description": "Category: book, video, telegram, notes, summary" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Resource ID" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "Source title (Arabic/English)" },
+        "description": { "type": "string", "maxLength": 4000, "description": "Source description" },
+        "url": { "type": "string", "maxLength": 2000, "description": "Source destination external URL" },
+        "link": { "type": "string", "maxLength": 2000, "description": "Source URL link" },
+        "subjectId": { "type": "string", "maxLength": 120, "description": "Associated subject identifier or general" },
+        "subjectTag": { "type": "string", "maxLength": 120, "description": "Subject tag label" },
+        "category": { "type": "string", "maxLength": 60, "description": "Category: book, video, telegram, notes, summary" },
+        "icon": { "type": "string", "maxLength": 80, "description": "Icon name" },
+        "isExternal": { "type": "boolean", "description": "External link toggle" },
         "isActive": { "type": "boolean", "description": "Visibility flag" },
         "order": { "type": "number", "description": "Display order" },
-        "createdAt": { "type": "string", "description": "Creation ISO timestamp" },
-        "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
-      }
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["title", "description"]
     },
     "college_info": {
       "title": "College Overview Information",
@@ -112,11 +239,12 @@
       "properties": {
         "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "College title" },
         "tagline": { "type": "string", "maxLength": 300, "description": "Short tagline" },
-        "image": { "type": "string", "maxLength": 1000, "description": "College banner image URL" },
-        "overview": { "type": "string", "maxLength": 5000, "description": "Overview text" },
-        "creditSystem": { "type": "string", "maxLength": 5000, "description": "Credit system explanation" },
+        "image": { "type": "string", "maxLength": 2000, "description": "College banner image URL" },
+        "overview": { "type": "string", "maxLength": 8000, "description": "Overview text" },
+        "creditSystem": { "type": "string", "maxLength": 8000, "description": "Credit system explanation" },
         "survivalTips": { "type": "array", "description": "Student survival tips list" },
-        "customSections": { "type": "array", "description": "Additional custom sections" }
+        "customSections": { "type": "array", "description": "Additional custom sections" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
       }
     },
     "users": {
@@ -229,24 +357,123 @@
         "updated_at": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
       },
       "required": ["id", "term_en", "term_en_lower", "term_ar", "synonyms", "pronunciation", "ipa", "english_definition", "arabic_definition", "specialty", "sources", "verification_status", "last_verified", "search_tokens", "created_at", "updated_at"]
+    },
+    "innova_info": {
+      "title": "INNOVA Association Information",
+      "description": "Dedicated About section title and multiline description for the INNOVA Association page",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Document identifier e.g. profile" },
+        "aboutTitle": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Editable About INNOVA title" },
+        "aboutDescription": { "type": "string", "minLength": 0, "maxLength": 5000, "description": "Multiline Arabic description for INNOVA" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "aboutTitle", "aboutDescription", "createdAt", "updatedAt"]
+    },
+    "innova_members": {
+      "title": "INNOVA Executive Board Members",
+      "description": "Dynamic list of INNOVA executive board members with photo, name, and position",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Member document ID" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 150, "description": "Member full name" },
+        "position": { "type": "string", "minLength": 2, "maxLength": 150, "description": "Member executive responsibility or title" },
+        "photoUrl": { "type": "string", "maxLength": 2000, "description": "Member photo HTTPS URL stored in Firebase Storage or external CDN" },
+        "photoStoragePath": { "type": "string", "maxLength": 500, "description": "Optional Firebase Storage path for cleanup/replacement" },
+        "order": { "type": "number", "description": "Display order index" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "name", "position", "photoUrl", "order", "createdAt", "updatedAt"]
+    },
+    "innova_contents": {
+      "title": "INNOVA Association Articles & Events",
+      "description": "Dynamic Articles and Events cards published on the INNOVA Association page",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$", "description": "Content card document ID" },
+        "category": { "type": "string", "enum": ["articles", "events"], "description": "Content classification: articles or events" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 250, "description": "Card title" },
+        "description": { "type": "string", "minLength": 2, "maxLength": 8000, "description": "Card body or event details" },
+        "imageUrl": { "type": "string", "maxLength": 2000, "description": "Optional cover image HTTPS URL" },
+        "imageStoragePath": { "type": "string", "maxLength": 500, "description": "Optional Firebase Storage path for cleanup/replacement" },
+        "published": { "type": "boolean", "description": "Visibility state for public viewers" },
+        "eventDate": { "type": "string", "maxLength": 40, "description": "Optional display date YYYY-MM-DD" },
+        "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
+        "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" }
+      },
+      "required": ["id", "category", "title", "description", "imageUrl", "published", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
+    "/admins/{adminId}": {
+      "schema": "admins",
+      "description": "Verified administrator access control records"
+    },
+    "/admin_integrations/{integrationId}": {
+      "schema": "admin_integrations",
+      "description": "Admin-only cloud integration status metadata (never stores secrets or OAuth tokens)"
+    },
+    "/site_config/{configId}": {
+      "schema": "site_config",
+      "description": "Publicly readable, admin-managed site settings (general) and delta sync manifest (sync_manifest)"
+    },
     "/college_info/{infoId}": {
       "schema": "college_info",
       "description": "Publicly readable, admin-managed college overview and tips"
+    },
+    "/articles/{articleId}": {
+      "schema": "articles",
+      "description": "Publicly readable, admin-managed university articles"
+    },
+    "/videos/{videoId}": {
+      "schema": "videos",
+      "description": "Publicly readable, admin-managed educational videos"
+    },
+    "/subjects_data/{subjectId}": {
+      "schema": "subjects_data",
+      "description": "Publicly readable, admin-managed academic subjects catalog"
+    },
+    "/announcements/{annId}": {
+      "schema": "announcements",
+      "description": "Publicly readable, admin-managed website announcements and banners"
+    },
+    "/media/{mediaId}": {
+      "schema": "media",
+      "description": "Publicly readable, admin-managed media assets"
     },
     "/ticker_items/{tickerId}": {
       "schema": "ticker_items",
       "description": "Publicly readable, admin-managed real-time news ticker headlines"
     },
+    "/drive_files/{fileId}": {
+      "schema": "drive_files",
+      "description": "Publicly readable, admin-managed Google Drive hosted file index"
+    },
     "/study_resources/{resourceId}": {
       "schema": "study_resources",
-      "description": "Collection of academic study sources and digital library cards"
+      "description": "Publicly readable, admin-managed collection of academic study sources and digital library cards"
+    },
+    "/admin_logs/{logId}": {
+      "schema": "admin_logs",
+      "description": "Admin-only audit trail logs"
     },
     "/medical_terms/{termId}": {
       "schema": "medical_terms",
       "description": "Publicly readable (verified only), admin-managed bilingual medical terminology index"
+    },
+    "/innova_info/{infoId}": {
+      "schema": "innova_info",
+      "description": "Publicly readable, admin-managed INNOVA Association identity and About section text"
+    },
+    "/innova_members/{memberId}": {
+      "schema": "innova_members",
+      "description": "Publicly readable, admin-managed INNOVA executive board members"
+    },
+    "/innova_contents/{contentId}": {
+      "schema": "innova_contents",
+      "description": "Publicly readable (published only), admin-managed INNOVA articles and events"
     },
     "/users/{userId}": {
       "schema": "users",
