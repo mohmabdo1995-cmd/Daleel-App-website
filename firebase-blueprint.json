@@ -259,7 +259,7 @@
         "college": { "type": "string", "maxLength": 150, "description": "College or department name" },
         "academicYear": { "type": "string", "maxLength": 80, "description": "Academic year or level" },
         "authProvider": { "type": "string", "maxLength": 60, "description": "Authentication provider identifier e.g. google.com" },
-        "preferences": { "type": "object", "description": "Theme, notifications, sound, schedule view, pomodoro, favoriteSubjects, and savedResourceIds" },
+        "preferences": { "type": "object", "description": "Theme, notifications, sound, schedule view, pomodoro, favoriteSubjects, enrolledSubjects, and savedResourceIds" },
         "createdAt": { "type": "string", "maxLength": 50, "description": "Creation ISO timestamp" },
         "updatedAt": { "type": "string", "maxLength": 50, "description": "Last update ISO timestamp" },
         "lastLoginAt": { "type": "string", "maxLength": 50, "description": "Most recent authenticated session ISO timestamp" }

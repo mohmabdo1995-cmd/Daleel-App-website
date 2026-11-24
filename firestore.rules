@@ -59,7 +59,7 @@ service cloud.firestore {
     function isValidUserPreferences(prefs) {
       return prefs is map &&
         prefs.keys().hasAll(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects']) &&
-        prefs.keys().hasOnly(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects', 'savedResourceIds']) &&
+        prefs.keys().hasOnly(['theme', 'notificationsEnabled', 'soundEnabled', 'defaultScheduleView', 'pomodoroWorkMinutes', 'pomodoroBreakMinutes', 'favoriteSubjects', 'enrolledSubjects', 'savedResourceIds']) &&
         (prefs.theme == 'light' || prefs.theme == 'dark') &&
         prefs.notificationsEnabled is bool &&
         prefs.soundEnabled is bool &&
@@ -68,6 +68,11 @@ service cloud.firestore {
         prefs.pomodoroBreakMinutes is int && prefs.pomodoroBreakMinutes >= 1 && prefs.pomodoroBreakMinutes <= 60 &&
         prefs.favoriteSubjects is list && prefs.favoriteSubjects.size() <= 20 &&
         (prefs.favoriteSubjects.size() == 0 || prefs.favoriteSubjects[0] is string) &&
+        (!('enrolledSubjects' in prefs) || (
+          prefs.enrolledSubjects is list &&
+          prefs.enrolledSubjects.size() <= 50 &&
+          (prefs.enrolledSubjects.size() == 0 || prefs.enrolledSubjects[0] is string)
+        )) &&
         (!('savedResourceIds' in prefs) || (
           prefs.savedResourceIds is list &&
           prefs.savedResourceIds.size() <= 100 &&

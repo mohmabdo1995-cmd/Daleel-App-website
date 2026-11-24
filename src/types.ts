@@ -140,6 +140,7 @@ export interface UserPreferences {
   pomodoroWorkMinutes: number;
   pomodoroBreakMinutes: number;
   favoriteSubjects: string[];
+  enrolledSubjects?: string[];
   savedResourceIds: string[];
 }
 

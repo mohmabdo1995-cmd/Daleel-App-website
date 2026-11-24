@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
-import { ActivePage, Lecture } from '../types';
-import { GraduationCap, BookOpen, CalendarCheck, ArrowLeft, Send, Sparkles, Clock, Calendar, Smartphone, Download, FileText, Video, ShieldCheck, LogIn, UserPlus, Sliders, LogOut, Star, Stethoscope, Users } from 'lucide-react';
+import { ActivePage, Lecture, Subject } from '../types';
+import { GraduationCap, BookOpen, CalendarCheck, ArrowLeft, Send, Sparkles, Clock, Calendar, Smartphone, Download, FileText, Video, ShieldCheck, LogIn, UserPlus, Sliders, LogOut, Star, Stethoscope, Users, ChevronDown, Check, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { SUBJECTS_DATA } from '../data/academicContent';
+import { FirebaseService } from '../services/firebase';
 
 interface MainDashboardProps {
   onNavigate: (page: ActivePage) => void;
@@ -17,8 +19,59 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
   upcomingCount,
   lectures = []
 }) => {
-  const { isAuthenticated, userProfile, preferences, openAuthModal, openProfileModal, logout } = useAuth();
+  const { isAuthenticated, userProfile, preferences, updatePreferences, openAuthModal, openProfileModal, logout } = useAuth();
   const favoriteSubjects = preferences.favoriteSubjects || [];
+  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>(SUBJECTS_DATA);
+  const [isSubjectsMenuOpen, setIsSubjectsMenuOpen] = useState(false);
+  const subjectsPickerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = FirebaseService.subscribeSubjects((data) => {
+      const active = (data || []).filter((s: Subject & { visible?: boolean }) => s.visible !== false);
+      setAvailableSubjects(active.length > 0 ? active : SUBJECTS_DATA);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isSubjectsMenuOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (subjectsPickerRef.current && !subjectsPickerRef.current.contains(e.target as Node)) {
+        setIsSubjectsMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSubjectsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSubjectsMenuOpen]);
+
+  const enrolledSubjectIds = preferences.enrolledSubjects || [];
+  const validSubjectIds = new Set(availableSubjects.map((s) => s.id));
+  const selectedEnrolledSubjects = enrolledSubjectIds.filter((id) => validSubjectIds.has(id));
+  const selectedSubjectsCount = selectedEnrolledSubjects.length;
+
+  const formatSubjectsCountLabel = (count: number): string => {
+    if (count === 0) return '0 مواد';
+    if (count === 1) return '1 مادة';
+    if (count === 2) return '2 مادتان';
+    if (count <= 10) return `${count} مواد`;
+    return `${count} مادة`;
+  };
+
+  const toggleEnrolledSubject = (subjectId: string) => {
+    const exists = selectedEnrolledSubjects.includes(subjectId);
+    const next = exists
+      ? selectedEnrolledSubjects.filter((id) => id !== subjectId)
+      : [...selectedEnrolledSubjects, subjectId].slice(0, 50);
+    void updatePreferences({ enrolledSubjects: next });
+  };
+
   const currentDateFormatted = new Date().toLocaleDateString('ar-EG', {
     weekday: 'long',
     day: 'numeric',
@@ -203,9 +256,11 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="lg:col-span-8 bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 rounded-[2rem] p-6 sm:p-8 shadow-sm relative overflow-hidden flex flex-col justify-between"
+          className="lg:col-span-8 bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 rounded-[2rem] p-6 sm:p-8 shadow-sm relative flex flex-col justify-between z-20"
         >
-          <div className="absolute top-0 left-0 w-64 h-64 bg-[#BCEBFF]/20 dark:bg-[#16958E]/10 rounded-full -translate-x-20 -translate-y-20 pointer-events-none opacity-60"></div>
+          <div className="absolute inset-0 overflow-hidden rounded-[2rem] pointer-events-none">
+            <div className="absolute top-0 left-0 w-64 h-64 bg-[#BCEBFF]/20 dark:bg-[#16958E]/10 rounded-full -translate-x-20 -translate-y-20 opacity-60"></div>
+          </div>
           
           <div className="relative z-10">
             <span className="px-4 py-1.5 bg-[#BCEBFF]/40 dark:bg-[#16958E]/20 text-[#071A3D] dark:text-[#BCEBFF] rounded-full text-xs font-bold uppercase tracking-wider mb-4 inline-block border border-[#16958E]/30">
@@ -221,7 +276,7 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
           </div>
 
           {/* Sub-Stats Cards */}
-          <div className="grid grid-cols-3 gap-3 sm:gap-4 relative z-10 pt-4 border-t border-[#BCEBFF]/40 dark:border-[#16958E]/30">
+          <div className="grid grid-cols-3 gap-3 sm:gap-4 relative z-20 pt-4 border-t border-[#BCEBFF]/40 dark:border-[#16958E]/30">
             <div className="bg-[#BCEBFF]/20 dark:bg-[#071A3D]/60 p-3.5 sm:p-4 rounded-2xl border border-[#BCEBFF]/50 dark:border-[#16958E]/30">
               <p className="text-slate-500 dark:text-slate-400 text-[11px] font-bold mb-1">المحاضرات الكلية</p>
               <p className="text-xl sm:text-2xl font-extrabold text-[#071A3D] dark:text-white font-montserrat tabular-nums">{lectureCount}</p>
@@ -230,9 +285,116 @@ export const MainDashboard: React.FC<MainDashboardProps> = ({
               <p className="text-slate-500 dark:text-slate-400 text-[11px] font-bold mb-1">المحاضرات القادمة</p>
               <p className="text-xl sm:text-2xl font-extrabold text-[#16958E] dark:text-[#BCEBFF] font-montserrat tabular-nums">{upcomingCount}</p>
             </div>
-            <div className="bg-[#BCEBFF]/20 dark:bg-[#071A3D]/60 p-3.5 sm:p-4 rounded-2xl border border-[#BCEBFF]/50 dark:border-[#16958E]/30">
-              <p className="text-slate-500 dark:text-slate-400 text-[11px] font-bold mb-1">المواد المقررة</p>
-              <p className="text-xl sm:text-2xl font-extrabold text-[#16958E] dark:text-[#BCEBFF] font-montserrat tabular-nums">6 مواد</p>
+            <div ref={subjectsPickerRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsSubjectsMenuOpen((prev) => !prev)}
+                aria-expanded={isSubjectsMenuOpen}
+                aria-haspopup="dialog"
+                className={`w-full h-full text-right bg-[#BCEBFF]/20 hover:bg-[#BCEBFF]/35 dark:bg-[#071A3D]/60 dark:hover:bg-[#16958E]/20 p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer ${
+                  isSubjectsMenuOpen
+                    ? 'border-[#16958E] ring-2 ring-[#16958E]/25'
+                    : 'border-[#BCEBFF]/50 dark:border-[#16958E]/30'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <p className="text-slate-500 dark:text-slate-400 text-[11px] font-bold">المواد المقررة</p>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-[#16958E] dark:text-[#BCEBFF] transition-transform flex-shrink-0 ${
+                      isSubjectsMenuOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </div>
+                <p className="text-xl sm:text-2xl font-extrabold text-[#16958E] dark:text-[#BCEBFF] font-montserrat tabular-nums">
+                  {formatSubjectsCountLabel(selectedSubjectsCount)}
+                </p>
+              </button>
+
+              {isSubjectsMenuOpen && (
+                <div
+                  role="dialog"
+                  aria-label="اختيار المواد المقررة"
+                  className="absolute left-0 top-full mt-2 w-72 sm:w-80 max-w-[calc(100vw-2rem)] z-50 rounded-2xl bg-white dark:bg-[#071A3D] border border-[#BCEBFF] dark:border-[#16958E]/50 shadow-2xl p-3 text-right"
+                >
+                  <div className="flex items-center justify-between gap-2 pb-2.5 mb-2 border-b border-slate-100 dark:border-white/10">
+                    <div>
+                      <p className="text-xs font-extrabold text-[#071A3D] dark:text-white font-tajawal">
+                        اختر المواد المقررة عليك
+                      </p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {selectedSubjectsCount} من {availableSubjects.length} محددة
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSubjectsMenuOpen(false)}
+                      aria-label="إغلاق القائمة"
+                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 mb-2 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void updatePreferences({
+                          enrolledSubjects: availableSubjects.map((s) => s.id).slice(0, 50),
+                        })
+                      }
+                      className="text-[#16958E] dark:text-[#BCEBFF] hover:underline cursor-pointer"
+                    >
+                      تحديد الكل
+                    </button>
+                    {selectedSubjectsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => void updatePreferences({ enrolledSubjects: [] })}
+                        className="text-rose-500 hover:underline cursor-pointer"
+                      >
+                        مسح التحديد
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-56 overflow-y-auto space-y-1.5 pl-0.5">
+                    {availableSubjects.map((subj) => {
+                      const isSelected = selectedEnrolledSubjects.includes(subj.id);
+                      return (
+                        <button
+                          key={subj.id}
+                          type="button"
+                          onClick={() => toggleEnrolledSubject(subj.id)}
+                          className={`w-full flex items-center justify-between gap-2.5 p-2 rounded-xl border text-right transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-[#16958E]/10 dark:bg-[#16958E]/25 border-[#16958E]/50 text-[#071A3D] dark:text-white'
+                              : 'bg-slate-50/70 hover:bg-[#BCEBFF]/20 dark:bg-white/5 dark:hover:bg-white/10 border-slate-200/70 dark:border-white/10 text-slate-700 dark:text-slate-200'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold font-tajawal truncate">{subj.nameAr}</p>
+                            {subj.nameEn && (
+                              <p className="text-[10px] text-slate-400 font-mono truncate">
+                                {subj.nameEn}
+                              </p>
+                            )}
+                          </div>
+                          <span
+                            className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 border transition-colors ${
+                              isSelected
+                                ? 'bg-[#16958E] border-[#16958E] text-white'
+                                : 'bg-white dark:bg-[#071A3D] border-slate-300 dark:border-slate-600'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.8]" />}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </motion.div>

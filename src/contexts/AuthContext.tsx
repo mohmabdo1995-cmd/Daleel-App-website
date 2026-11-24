@@ -487,13 +487,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updatePreferences = useCallback(
     async (updates: Partial<UserPreferences>) => {
       if (user && userProfile) {
-        const updated = await UserAccountService.updateUserProfileAndPreferences(
-          user.uid,
-          userProfile,
-          { preferences: updates }
-        );
-        setUserProfile(updated);
-        saveCachedUserWorkspace(user.uid, { profile: updated });
+        const optimisticPrefs = sanitizePreferences(updates, userProfile.preferences);
+        const optimisticProfile = { ...userProfile, preferences: optimisticPrefs };
+        setUserProfile(optimisticProfile);
+        saveCachedUserWorkspace(user.uid, { profile: optimisticProfile });
+        try {
+          const updated = await UserAccountService.updateUserProfileAndPreferences(
+            user.uid,
+            userProfile,
+            { preferences: updates }
+          );
+          setUserProfile(updated);
+          saveCachedUserWorkspace(user.uid, { profile: updated });
+        } catch (err) {
+          console.warn('Cloud preference sync deferred; retained in local cache:', err);
+        }
       } else {
         const next = sanitizePreferences(updates, guestPreferences);
         setGuestPreferences(next);

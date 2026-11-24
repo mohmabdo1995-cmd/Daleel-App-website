@@ -52,6 +52,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   pomodoroWorkMinutes: 25,
   pomodoroBreakMinutes: 5,
   favoriteSubjects: [],
+  enrolledSubjects: [],
   savedResourceIds: [],
 };
 
@@ -202,6 +203,9 @@ export function sanitizePreferences(
   const favsRaw = Array.isArray(prefs?.favoriteSubjects)
     ? prefs!.favoriteSubjects.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 20)
     : fallback.favoriteSubjects;
+  const enrolledRaw = Array.isArray(prefs?.enrolledSubjects)
+    ? prefs!.enrolledSubjects.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 50)
+    : fallback.enrolledSubjects || [];
   const savedRaw = Array.isArray(prefs?.savedResourceIds)
     ? prefs!.savedResourceIds.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).slice(0, 100)
     : fallback.savedResourceIds;
@@ -220,6 +224,7 @@ export function sanitizePreferences(
     pomodoroWorkMinutes: Math.min(120, Math.max(1, Math.round(Number.isFinite(workRaw) ? workRaw : 25))),
     pomodoroBreakMinutes: Math.min(60, Math.max(1, Math.round(Number.isFinite(breakRaw) ? breakRaw : 5))),
     favoriteSubjects: Array.from(new Set(favsRaw)),
+    enrolledSubjects: Array.from(new Set(enrolledRaw)),
     savedResourceIds: Array.from(new Set(savedRaw)),
   };
 }
@@ -807,10 +812,17 @@ export class UserAccountService {
       updatedAt,
     };
 
-    try {
-      await updateDoc(userRef, updatePayload);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, userPath);
+    if (!isFirestoreQuotaExceeded()) {
+      try {
+        await updateDoc(userRef, updatePayload);
+        FirestoreAuditMetrics.recordWriteConfirmed();
+      } catch (err) {
+        if (isFirestoreQuotaError(err)) {
+          markFirestoreQuotaExceeded();
+        } else {
+          handleFirestoreError(err, OperationType.UPDATE, userPath);
+        }
+      }
     }
 
     return {
