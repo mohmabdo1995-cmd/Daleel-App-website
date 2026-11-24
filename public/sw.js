@@ -72,9 +72,7 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/__/') ||
     url.searchParams.has('code') ||
     url.searchParams.has('state') ||
-    url.hostname.includes('firestore.googleapis.com') ||
-    url.hostname.includes('identitytoolkit.googleapis.com') ||
-    url.hostname.includes('securetoken.googleapis.com') ||
+    url.hostname.endsWith('.googleapis.com') ||
     url.hostname.includes('accounts.google.com') ||
     url.hostname.includes('apis.google.com') ||
     url.hostname.endsWith('.firebaseapp.com')

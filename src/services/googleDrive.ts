@@ -208,6 +208,15 @@ function emitConnectionState(): void {
   });
 }
 
+function getCurrentBrowserOrigin(): string {
+  if (typeof window === 'undefined') return '';
+  return window.location?.origin || '';
+}
+
+function getConfiguredDriveClientId(): string {
+  return ((firebaseConfig as { oAuthClientId?: string }).oAuthClientId || '').trim();
+}
+
 async function loadGisScript(): Promise<void> {
   if (typeof window === 'undefined') {
     throw new Error('Google Drive متاح في بيئة المتصفح فقط.');
@@ -224,13 +233,35 @@ async function loadGisScript(): Promise<void> {
         resolve();
         return;
       }
-      existing.addEventListener('load', () => resolve(), { once: true });
-      existing.addEventListener(
-        'error',
-        () => reject(new Error('تعذر تحميل مكتبة مصادقة Google Identity Services.')),
-        { once: true }
-      );
-      return;
+      if (existing.dataset.gisLoadFailed === '1') {
+        existing.remove();
+      } else {
+        const existingTimeoutId = window.setTimeout(() => {
+          reject(new Error('انتهت مهلة تحميل خدمة مصادقة Google Drive.'));
+        }, 12_000);
+        existing.addEventListener(
+          'load',
+          () => {
+            window.clearTimeout(existingTimeoutId);
+            if (window.google?.accounts?.oauth2?.initTokenClient) {
+              resolve();
+            } else {
+              reject(new Error('مكتبة Google Identity Services غير مكتملة.'));
+            }
+          },
+          { once: true }
+        );
+        existing.addEventListener(
+          'error',
+          () => {
+            window.clearTimeout(existingTimeoutId);
+            existing.dataset.gisLoadFailed = '1';
+            reject(new Error('تعذر تحميل مكتبة مصادقة Google Identity Services.'));
+          },
+          { once: true }
+        );
+        return;
+      }
     }
 
     const script = document.createElement('script');
@@ -251,6 +282,7 @@ async function loadGisScript(): Promise<void> {
     };
     script.onerror = () => {
       window.clearTimeout(timeoutId);
+      script.dataset.gisLoadFailed = '1';
       reject(new Error('تعذر الوصول إلى خدمة Google Identity Services. تحقق من الاتصال بالإنترنت.'));
     };
     document.head.appendChild(script);
@@ -267,7 +299,7 @@ async function requestGisAccessToken(options: {
   loginHint?: string | null;
   timeoutMs?: number;
 }): Promise<{ accessToken: string; expiresInSec: number }> {
-  const clientId = (firebaseConfig as { oAuthClientId?: string }).oAuthClientId;
+  const clientId = getConfiguredDriveClientId();
   if (!clientId) {
     throw new Error('معرّف عميل OAuth غير مضبوط في إعدادات المشروع.');
   }
@@ -277,6 +309,8 @@ async function requestGisAccessToken(options: {
   if (!oauth2?.initTokenClient) {
     throw new Error('تعذر تهيئة Google OAuth2 Token Client.');
   }
+
+  const activeOrigin = getCurrentBrowserOrigin();
 
   return new Promise<{ accessToken: string; expiresInSec: number }>((resolve, reject) => {
     let settled = false;
@@ -294,13 +328,16 @@ async function requestGisAccessToken(options: {
         settled = true;
         window.clearTimeout(timer);
         if (resp.error || !resp.access_token) {
-          reject(
-            new Error(
-              resp.error_description ||
-                resp.error ||
-                'لم يتم استلام تصريح الوصول من Google Drive.'
-            )
-          );
+          const rawErr = resp.error_description || resp.error || 'لم يتم استلام تصريح الوصول من Google Drive.';
+          if (/origin_mismatch|redirect_uri_mismatch/i.test(rawErr)) {
+            reject(
+              new Error(
+                `خطأ origin_mismatch في Google OAuth: النطاق الحالي (${activeOrigin}) غير مسجل ضمن Authorized JavaScript origins للعميل ${clientId}.`
+              )
+            );
+            return;
+          }
+          reject(new Error(rawErr));
           return;
         }
         resolve({
@@ -313,7 +350,11 @@ async function requestGisAccessToken(options: {
         settled = true;
         window.clearTimeout(timer);
         if (err?.type === 'popup_closed') {
-          reject(new Error('تم إغلاق نافذة تفويض Google Drive قبل إتمام الربط.'));
+          reject(
+            new Error(
+              `تم إغلاق نافذة تفويض Google Drive قبل إتمام الربط. إذا ظهر خطأ Error 400: origin_mismatch، تأكد من إضافة النطاق (${activeOrigin}) في Google Cloud Console.`
+            )
+          );
         } else if (err?.type === 'popup_failed_to_open') {
           reject(new Error('قام المتصفح بحظر نافذة تفويض Google Drive. يرجى السماح بالنوافذ المنبثقة.'));
         } else {
@@ -419,6 +460,14 @@ async function executeDriveFetch(url: string, init: RequestInit = {}): Promise<R
 }
 
 export class GoogleDriveService {
+  static getOAuthDiagnostics(): { origin: string; clientId: string; scopes: string[] } {
+    return {
+      origin: getCurrentBrowserOrigin(),
+      clientId: getConfiguredDriveClientId(),
+      scopes: DRIVE_SCOPES.split(' '),
+    };
+  }
+
   static getConnectionSnapshot(): DriveConnectionSnapshot {
     return buildSnapshot();
   }

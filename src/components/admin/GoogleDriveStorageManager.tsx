@@ -331,9 +331,20 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
 
       {/* Live Error Notice from Connection Snapshot */}
       {connectionSnapshot.error && (
-        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-500/30 flex items-center gap-3 text-xs text-rose-700 dark:text-rose-200 font-bold">
-          <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-500" />
-          <span>{connectionSnapshot.error}</span>
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-500/30 flex flex-col gap-2 text-xs text-rose-700 dark:text-rose-200 font-bold">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-500" />
+            <span>{connectionSnapshot.error}</span>
+          </div>
+          {(() => {
+            const diag = GoogleDriveService.getOAuthDiagnostics();
+            return (
+              <div className="pr-8 text-[11px] font-mono font-normal text-rose-600/90 dark:text-rose-300/90 space-y-0.5 break-all" dir="ltr">
+                <div>Origin: {diag.origin || '(unknown)'}</div>
+                <div>Client ID: {diag.clientId || '(missing)'}</div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -479,7 +490,7 @@ export const GoogleDriveStorageManager: React.FC<GoogleDriveStorageManagerProps>
           </div>
           <button
             type="button"
-            onClick={loadQuotaAndFiles}
+            onClick={() => void loadQuotaAndFiles(true)}
             disabled={isLoadingFiles}
             className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/10 text-slate-600 dark:text-white text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
           >
