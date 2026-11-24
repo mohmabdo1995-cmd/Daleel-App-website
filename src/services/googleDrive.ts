@@ -213,8 +213,15 @@ function getCurrentBrowserOrigin(): string {
   return window.location?.origin || '';
 }
 
+// Dedicated Google Workspace OAuth Client ID provisioned via AI Studio OAuth setup on gen-lang-client-0974872907
+const DRIVE_OAUTH_CLIENT_ID =
+  '598610101408-1u01qc987hk8m2o6r5hsnduknve67rso.apps.googleusercontent.com';
+
 function getConfiguredDriveClientId(): string {
-  return ((firebaseConfig as { oAuthClientId?: string }).oAuthClientId || '').trim();
+  return (
+    DRIVE_OAUTH_CLIENT_ID ||
+    ((firebaseConfig as { oAuthClientId?: string }).oAuthClientId || '').trim()
+  );
 }
 
 async function loadGisScript(): Promise<void> {
