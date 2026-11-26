@@ -55,6 +55,14 @@ service cloud.firestore {
       return isValidString(val, minLen, maxLen) && !val.matches('^blob:.*');
     }
 
+    function isValidRasterImageOrHttpsUrl(val, maxLen) {
+      return isValidString(val, 0, maxLen) && (
+        val.size() == 0 ||
+        val.matches('^https?://.*') ||
+        val.matches('^data:image/(jpeg|jpg|png|webp|gif);base64,[A-Za-z0-9+/=]+$')
+      );
+    }
+
     // --- Validation Blueprints: Student Accounts & Private Subcollections ---
     function isValidUserPreferences(prefs) {
       return prefs is map &&
@@ -242,7 +250,7 @@ service cloud.firestore {
         data.keys().hasOnly(['title', 'tagline', 'image', 'overview', 'creditSystem', 'survivalTips', 'customSections', 'updatedAt']) &&
         (!('title' in data) || isValidString(data.title, 0, 300)) &&
         (!('tagline' in data) || isValidString(data.tagline, 0, 300)) &&
-        (!('image' in data) || isValidNonBlobUrl(data.image, 0, 2000)) &&
+        (!('image' in data) || isValidRasterImageOrHttpsUrl(data.image, 350000)) &&
         (!('overview' in data) || isValidString(data.overview, 0, 8000)) &&
         (!('creditSystem' in data) || isValidString(data.creditSystem, 0, 8000)) &&
         (!('survivalTips' in data) || (data.survivalTips is list && data.survivalTips.size() <= 100)) &&

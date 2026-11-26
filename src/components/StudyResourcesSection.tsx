@@ -223,8 +223,8 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-        <div>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8 w-full min-w-0">
+        <div className="w-full min-w-0 flex-1">
           <button
             onClick={onBack}
             className="inline-flex items-center gap-2 h-9 sm:h-10 px-3.5 rounded-xl bg-[#BCEBFF]/30 hover:bg-[#BCEBFF]/60 text-[#071A3D] dark:text-[#BCEBFF] font-bold text-xs sm:text-sm transition-all mb-4 cursor-pointer"
@@ -234,19 +234,19 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
           </button>
 
           <div className="flex items-center gap-2 text-[#16958E] dark:text-[#BCEBFF] font-bold text-sm">
-            <Sparkles className="w-4 h-4 text-[#16958E]" />
+            <Sparkles className="w-4 h-4 text-[#16958E] flex-shrink-0" />
             <span>القسم الثاني - مصادر الدراسة والكتب</span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-extrabold font-tajawal text-[#071A3D] dark:text-white mt-1">
+          <h1 className="text-2xl sm:text-4xl font-extrabold font-tajawal text-[#071A3D] dark:text-white mt-1 break-words">
             مصادر الدراسة والمكتبة الرقمية 📖
           </h1>
-          <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base mt-1">
+          <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base mt-1 leading-relaxed break-words">
             مجموعة متجددة ومختارة من أفضل المراجع العلمية، الأطلس الطبي، والبوتات التعليمية المعتمدة.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto flex-shrink-0">
           <button
             type="button"
             onClick={() => setIsAddPersonalOpen(true)}
@@ -271,22 +271,22 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
 
       {/* Sync Banner */}
       <div
-        className={`mb-6 p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-right ${
+        className={`mb-6 p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-right w-full min-w-0 ${
           isAuthenticated
             ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/40'
             : 'bg-[#BCEBFF]/20 dark:bg-[#16958E]/15 border-[#16958E]/30'
         }`}
       >
-        <div className="flex items-center gap-2 text-xs font-bold text-[#071A3D] dark:text-white">
+        <div className="flex items-center gap-2 text-xs font-bold text-[#071A3D] dark:text-white min-w-0 flex-1">
           {isAuthenticated ? (
             <>
               <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <span>مصادرك المحفوظة والروابط الشخصية متزامنة تلقائياً مع حسابك في السحابة.</span>
+              <span className="break-words">مصادرك المحفوظة والروابط الشخصية متزامنة تلقائياً مع حسابك في السحابة.</span>
             </>
           ) : (
             <>
               <LogIn className="w-4 h-4 text-[#16958E] flex-shrink-0" />
-              <span>سجّل الدخول بحساب Google لحفظ مصادرك المفضلة وروابطك الشخصية في السحابة.</span>
+              <span className="break-words">سجّل الدخول بحساب Google لحفظ مصادرك المفضلة وروابطك الشخصية في السحابة.</span>
             </>
           )}
         </div>
@@ -314,20 +314,39 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 mb-8 relative overflow-hidden shadow-sm"
+        className="w-full max-w-full box-border p-4 sm:p-6 lg:p-8 rounded-3xl bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 mb-8 relative shadow-sm"
       >
-        <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
-          <div className="flex items-center gap-4 text-right">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-[#071A3D] to-[#16958E] text-white flex items-center justify-center shadow-lg shadow-[#071A3D]/30 flex-shrink-0">
-              <Send className="w-8 h-8 rotate-180 text-[#BCEBFF]" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 sm:gap-6 w-full min-w-0">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3.5 sm:gap-4 w-full min-w-0 flex-1 text-right">
+            <div className="flex items-center gap-3 w-full sm:w-auto min-w-0 flex-shrink-0">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-tr from-[#071A3D] to-[#16958E] text-white flex items-center justify-center shadow-lg shadow-[#071A3D]/30 flex-shrink-0">
+                <Send className="w-6 h-6 sm:w-8 sm:h-8 rotate-180 text-[#BCEBFF]" />
+              </div>
+              <div className="sm:hidden min-w-0 flex-1">
+                <span className="block text-[11px] font-bold text-[#16958E] dark:text-[#BCEBFF]">
+                  البوت الأكاديمي الشامل
+                </span>
+                <span className="block text-sm font-bold font-tajawal text-[#071A3D] dark:text-white leading-snug">
+                  بوت التلجرام الرسمي
+                </span>
+              </div>
             </div>
-            <div>
-              <span className="text-xs font-bold text-[#16958E] dark:text-[#BCEBFF]">البوت الأكاديمي الشامل</span>
-              <h2 className="text-2xl font-bold font-tajawal text-[#071A3D] dark:text-white mt-0.5">
-                بوت التلجرام: @Daleelak_AlJamaei_bot
+
+            <div className="w-full min-w-0 flex-1">
+              <span className="hidden sm:inline-block text-xs font-bold text-[#16958E] dark:text-[#BCEBFF]">
+                البوت الأكاديمي الشامل
+              </span>
+              <h2 className="text-base sm:text-xl lg:text-2xl font-bold font-tajawal text-[#071A3D] dark:text-white sm:mt-0.5 leading-snug break-words">
+                <span className="hidden sm:inline">بوت التلجرام: </span>
+                <span
+                  dir="ltr"
+                  className="inline-block max-w-full align-baseline font-bold tracking-tight [overflow-wrap:anywhere]"
+                >
+                  @Daleelak_AlJamaei_bot
+                </span>
               </h2>
-              <p className="text-slate-600 dark:text-slate-400 text-sm mt-1 leading-relaxed max-w-2xl">
-                احصل على التجميعات المعتمدة، ملخصات المواد (Anatomy, Physiology, Biochemistry, Microbiology, Pathology, Pharmacology)، وأسئلة الامتحانات السابقة فورياً.
+              <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm mt-1.5 leading-relaxed max-w-2xl break-words">
+                احصل على التجميعات المعتمدة، ملخصات المواد (<span dir="ltr" className="inline [overflow-wrap:anywhere]">Anatomy, Physiology, Biochemistry, Microbiology, Pathology, Pharmacology</span>)، وأسئلة الامتحانات السابقة فورياً.
               </p>
             </div>
           </div>
@@ -336,10 +355,10 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
             href="http://t.me/Daleelak_AlJamaei_bot"
             target="_blank"
             rel="noopener noreferrer"
-            className="w-full md:w-auto px-8 py-4 rounded-2xl bg-[#071A3D] hover:bg-[#16958E] text-white font-bold text-base shadow-lg shadow-[#071A3D]/25 transition-all text-center whitespace-nowrap active:scale-95 flex items-center justify-center gap-2"
+            className="w-full md:w-auto flex-shrink-0 px-5 sm:px-7 lg:px-8 py-3.5 sm:py-4 rounded-2xl bg-[#071A3D] hover:bg-[#16958E] text-white font-bold text-sm sm:text-base shadow-lg shadow-[#071A3D]/25 transition-all text-center active:scale-95 inline-flex items-center justify-center gap-2"
           >
             <span>انتقال للبوت الآن</span>
-            <ExternalLink className="w-4 h-4 text-[#BCEBFF]" />
+            <ExternalLink className="w-4 h-4 text-[#BCEBFF] flex-shrink-0" />
           </a>
         </div>
       </motion.div>
@@ -366,12 +385,12 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
                 key={item.id}
                 className="p-4 rounded-2xl bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 flex flex-col justify-between gap-3 shadow-xs"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h4 className="font-bold font-tajawal text-sm text-[#071A3D] dark:text-white">
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-bold font-tajawal text-sm text-[#071A3D] dark:text-white break-words">
                       {item.title}
                     </h4>
-                    <span className="text-[11px] text-[#16958E] dark:text-[#BCEBFF] font-medium">
+                    <span className="text-[11px] text-[#16958E] dark:text-[#BCEBFF] font-medium break-words">
                       {getSubjectDisplayName(item.subjectTag)}
                     </span>
                   </div>
@@ -379,13 +398,13 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
                     type="button"
                     onClick={() => handleDeletePersonal(item.id)}
                     title="حذف المصدر الشخصي"
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer flex-shrink-0"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
                 {item.description && (
-                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed break-words">
                     {item.description}
                   </p>
                 )}
@@ -479,7 +498,7 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
         </div>
 
         {/* Live Search Input */}
-        <div className="relative min-w-[220px]">
+        <div className="relative w-full sm:w-64 sm:min-w-[220px]">
           <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
@@ -516,19 +535,19 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
               transition={{ delay: index * 0.05 }}
               className="p-6 rounded-3xl bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 hover:border-[#16958E] shadow-sm transition-all flex flex-col justify-between"
             >
-              <div>
-                <div className="flex items-start justify-between gap-2 mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 rounded-2xl bg-[#BCEBFF]/20 dark:bg-[#071A3D]/70 border border-[#BCEBFF]/40 dark:border-[#16958E]/30">
+              <div className="min-w-0">
+                <div className="flex items-start justify-between gap-2 mb-4 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="p-3 rounded-2xl bg-[#BCEBFF]/20 dark:bg-[#071A3D]/70 border border-[#BCEBFF]/40 dark:border-[#16958E]/30 flex-shrink-0">
                       {getCategoryIcon(res.category)}
                     </div>
-                    <div>
-                      <h3 className="font-bold font-tajawal text-[#071A3D] dark:text-white text-lg">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold font-tajawal text-[#071A3D] dark:text-white text-base sm:text-lg break-words">
                         {res.title}
                       </h3>
-                      <span className="text-xs text-[#16958E] dark:text-[#BCEBFF] font-medium inline-flex items-center gap-1">
-                        <Compass className="w-3 h-3 inline text-[#16958E]" />
-                        <span>{getSubjectDisplayName(res.subjectId, res.subjectTag)}</span>
+                      <span className="text-xs text-[#16958E] dark:text-[#BCEBFF] font-medium inline-flex items-center gap-1 max-w-full">
+                        <Compass className="w-3 h-3 inline text-[#16958E] flex-shrink-0" />
+                        <span className="truncate">{getSubjectDisplayName(res.subjectId, res.subjectTag)}</span>
                       </span>
                     </div>
                   </div>
@@ -547,12 +566,12 @@ export const StudyResourcesSection: React.FC<StudyResourcesSectionProps> = ({
                   </button>
                 </div>
 
-                <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed mb-6 whitespace-pre-line">
+                <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed mb-6 whitespace-pre-line break-words">
                   {res.description}
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-[#BCEBFF]/40 dark:border-[#16958E]/20 flex items-center justify-between gap-2">
+              <div className="pt-4 border-t border-[#BCEBFF]/40 dark:border-[#16958E]/20 flex flex-wrap items-center justify-between gap-2">
                 <a
                   href={destinationUrl}
                   target="_blank"

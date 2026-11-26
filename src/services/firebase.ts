@@ -22,6 +22,7 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { Subject, Lecture, StudyResource, ArticleItem, VideoItem, CollegeInfoData, TickerItem } from '../types';
 import { COLLEGE_INFO, SUBJECTS_DATA, DEFAULT_ARTICLES, DEFAULT_VIDEOS, STUDY_RESOURCES } from '../data/academicContent';
+import { validateCollegeImageUrlValue } from './imageProcessor';
 import {
   DataSyncService,
   SyncBackendAdapter,
@@ -154,6 +155,42 @@ export function handleFirestoreError(
     console.error('Firestore Error: ', JSON.stringify(errInfo));
   }
   throw new Error(JSON.stringify(errInfo));
+}
+
+export function mapFirestoreErrorToArabic(error: unknown, fallbackMessage: string): string {
+  if (!error) return fallbackMessage;
+  if (isFirestoreQuotaError(error)) {
+    return 'تم الوصول للحد اليومي المجاني لقاعدة البيانات مؤقتاً، لذا تعذر إتمام الحفظ الآن. تم الاحتفاظ بالصورة والبيانات السابقة.';
+  }
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  let innerError = rawMessage;
+  try {
+    const parsed = JSON.parse(rawMessage) as { error?: unknown };
+    if (typeof parsed?.error === 'string' && parsed.error) {
+      innerError = parsed.error;
+    }
+  } catch {
+    // not JSON-wrapped
+  }
+  const code = String((error as { code?: unknown })?.code || '').toLowerCase();
+  const lower = `${code} ${innerError}`.toLowerCase();
+
+  if (lower.includes('permission-denied') || lower.includes('missing or insufficient permissions')) {
+    return 'تم رفض الحفظ من قواعد أمان قاعدة البيانات: تأكد من تسجيل الدخول بحساب المشرف المصرح به وأن بيانات الصورة صالحة.';
+  }
+  if (lower.includes('unauthenticated')) {
+    return 'انتهت جلسة تسجيل الدخول. يرجى تسجيل الدخول بحساب المشرف ثم إعادة المحاولة.';
+  }
+  if (lower.includes('invalid-argument') || lower.includes('exceeds the maximum allowed size')) {
+    return 'حجم بيانات الصفحة أو الصورة يتجاوز الحد المسموح في قاعدة البيانات. يرجى رفع صورة أصغر أو مضغوطة.';
+  }
+  if (lower.includes('unavailable') || lower.includes('network') || lower.includes('offline')) {
+    return 'تعذر الاتصال بالخادم السحابي. تحقق من اتصال الإنترنت وأعد المحاولة (تم الاحتفاظ بالصورة السابقة).';
+  }
+  if (innerError && /[\u0600-\u06FF]/.test(innerError)) {
+    return innerError;
+  }
+  return fallbackMessage;
 }
 
 export async function testFirestoreConnection(): Promise<boolean> {
@@ -869,9 +906,26 @@ export class FirebaseService {
   }
 
   static async updateCollegeInfo(data: Partial<CollegeInfoData>): Promise<void> {
+    if (!auth.currentUser || auth.currentUser.isAnonymous || !auth.currentUser.emailVerified) {
+      throw new Error('يجب تسجيل الدخول بحساب مشرف موثّق عبر Google لحفظ التغييرات في السحابة.');
+    }
+
+    const sanitizedData: Partial<CollegeInfoData> & { updatedAt?: string } = { ...data };
+    if (sanitizedData.image !== undefined) {
+      const check = validateCollegeImageUrlValue(sanitizedData.image);
+      if (check.valid === false) {
+        throw new Error(check.error);
+      }
+      sanitizedData.image = check.normalized;
+    }
+
     try {
       const docRef = doc(db, 'college_info', COLLEGE_INFO_DOC_ID);
-      const cleanPayload = stripUndefinedFields(data);
+      const nowIso = new Date().toISOString();
+      const cleanPayload = stripUndefinedFields({
+        ...sanitizedData,
+        updatedAt: nowIso,
+      });
       await setDoc(docRef, cleanPayload, { merge: true });
       const cached = await DataSyncService.loadCollection<CollegeInfoData>('college_info');
       const merged: CollegeInfoData = {
@@ -882,7 +936,7 @@ export class FirebaseService {
         type: 'replace',
         data: merged,
       });
-      this.addAdminLog('تحديث قسم الكلية', 'تم تعديل ومعالجة معلومات عن الكلية').catch(() => {});
+      this.addAdminLog('تحديث قسم الكلية', 'تم تعديل وحفظ معلومات وغلاف الكلية').catch(() => {});
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `college_info/${COLLEGE_INFO_DOC_ID}`);
     }

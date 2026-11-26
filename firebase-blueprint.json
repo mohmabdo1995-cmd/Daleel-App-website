@@ -239,7 +239,7 @@
       "properties": {
         "title": { "type": "string", "minLength": 1, "maxLength": 300, "description": "College title" },
         "tagline": { "type": "string", "maxLength": 300, "description": "Short tagline" },
-        "image": { "type": "string", "maxLength": 2000, "description": "College banner image URL" },
+        "image": { "type": "string", "maxLength": 350000, "description": "College banner image HTTPS URL or compressed raster Base64 Data URL" },
         "overview": { "type": "string", "maxLength": 8000, "description": "Overview text" },
         "creditSystem": { "type": "string", "maxLength": 8000, "description": "Credit system explanation" },
         "survivalTips": { "type": "array", "description": "Student survival tips list" },

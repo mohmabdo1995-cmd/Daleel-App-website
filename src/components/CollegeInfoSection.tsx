@@ -24,12 +24,25 @@ export const CollegeInfoSection: React.FC<CollegeInfoSectionProps> = ({
     customSections: []
   });
 
+  const [coverLoadError, setCoverLoadError] = useState(false);
+  const [failedCustomSectionIds, setFailedCustomSectionIds] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     const unsubscribe = FirebaseService.subscribeCollegeInfo((data) => {
       setInfo(data);
     });
     return () => unsubscribe();
   }, []);
+
+  const normalizedCoverImage = (info.image || '').trim();
+  const hasUsableCoverImage =
+    normalizedCoverImage.length > 0 &&
+    !/^blob:/i.test(normalizedCoverImage) &&
+    !coverLoadError;
+
+  useEffect(() => {
+    setCoverLoadError(false);
+  }, [normalizedCoverImage]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
@@ -53,14 +66,25 @@ export const CollegeInfoSection: React.FC<CollegeInfoSectionProps> = ({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden rounded-3xl mb-10 shadow-2xl border border-[#BCEBFF]/80 dark:border-[#16958E]/30"
+        className="relative overflow-hidden rounded-3xl mb-10 shadow-2xl border border-[#BCEBFF]/80 dark:border-[#16958E]/30 min-h-[16rem] sm:min-h-[24rem] bg-gradient-to-br from-[#071A3D] via-[#0e3268] to-[#16958E]"
       >
-        <img
-          src={info.image}
-          alt={info.title}
-          className="w-full h-64 sm:h-96 object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#071A3D] via-[#071A3D]/70 to-transparent flex flex-col justify-end p-6 sm:p-10 text-white">
+        {hasUsableCoverImage ? (
+          <img
+            key={normalizedCoverImage}
+            src={normalizedCoverImage}
+            alt={info.title}
+            onError={() => setCoverLoadError(true)}
+            className="w-full h-64 sm:h-96 object-cover block"
+          />
+        ) : (
+          <div
+            aria-hidden="true"
+            className="w-full h-64 sm:h-96 flex items-center justify-center opacity-20"
+          >
+            <GraduationCap className="w-24 h-24 text-[#BCEBFF]" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#071A3D] via-[#071A3D]/65 to-transparent flex flex-col justify-end p-6 sm:p-10 text-white">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#071A3D]/80 text-white text-xs font-bold w-fit mb-3 backdrop-blur-md border border-[#16958E]/30">
             <GraduationCap className="w-4 h-4 text-[#BCEBFF]" />
             <span>جامعتك في جيبك</span>
@@ -110,16 +134,26 @@ export const CollegeInfoSection: React.FC<CollegeInfoSectionProps> = ({
         </motion.div>
 
         {/* Custom Sections Added By Admin */}
-        {info.customSections && info.customSections.map((sec, idx) => (
+        {info.customSections && info.customSections.map((sec, idx) => {
+          const secKey = sec.id || String(idx);
+          const showSecImg = Boolean(sec.image?.trim()) && !failedCustomSectionIds[secKey];
+          return (
           <motion.div
-            key={sec.id || idx}
+            key={secKey}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.25 }}
             className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-[#071A3D] border border-[#BCEBFF]/80 dark:border-[#16958E]/30 shadow-sm"
           >
-            {sec.image && (
-              <img src={sec.image} alt={sec.title} className="w-full h-56 object-cover rounded-2xl mb-4 border border-[#BCEBFF]/80" />
+            {showSecImg && (
+              <img
+                src={sec.image}
+                alt={sec.title}
+                onError={() =>
+                  setFailedCustomSectionIds((prev) => ({ ...prev, [secKey]: true }))
+                }
+                className="w-full h-56 object-cover rounded-2xl mb-4 border border-[#BCEBFF]/80"
+              />
             )}
             <h2 className="text-xl sm:text-2xl font-bold font-tajawal text-[#071A3D] dark:text-white mb-3">
               {sec.title}
@@ -128,7 +162,8 @@ export const CollegeInfoSection: React.FC<CollegeInfoSectionProps> = ({
               {sec.content}
             </p>
           </motion.div>
-        ))}
+          );
+        })}
 
         {/* Freshman Survival Tips */}
         {info.survivalTips && info.survivalTips.length > 0 && (

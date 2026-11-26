@@ -6,12 +6,13 @@ import {
   Plus, Trash2, Eye, EyeOff, Download, Upload, Clock, Layers, Sparkles,
   BookOpen, Calendar, HelpCircle, ExternalLink, Globe, Phone, Mail, MapPin,
   Video, Play, MoveUp, MoveDown, Heading, Bold, Italic, List, ListOrdered,
-  Quote, ImageIcon, FileCode, Check, X, ArrowRight, Edit3, Film, AlertTriangle, Radio, Cloud, Stethoscope, Database, HardDrive, Wifi, WifiOff, Activity, RotateCcw, Building2
+  Quote, ImageIcon, FileCode, Check, X, ArrowRight, Edit3, Film, AlertTriangle, Radio, Cloud, Stethoscope, Database, HardDrive, Wifi, WifiOff, Activity, RotateCcw, Building2, Loader2
 } from 'lucide-react';
 import {
   FirebaseService, SiteConfig, DEFAULT_SITE_CONFIG, SectionVisibility,
-  AnnouncementItem, MediaItem, AdminLogItem, ButtonConfig
+  AnnouncementItem, MediaItem, AdminLogItem, ButtonConfig, mapFirestoreErrorToArabic
 } from '../../services/firebase';
+import { formatBytesLabel, processCoverImageFile, validateCollegeImageUrlValue } from '../../services/imageProcessor';
 import { AdminAuthService } from '../../services/adminAuth';
 import { ArticleItem, VideoItem, CollegeInfoData, Subject, TickerItem, StudyResource, InnovaMemberItem, InnovaContentItem } from '../../types';
 import { COLLEGE_INFO, SUBJECTS_DATA } from '../../data/academicContent';
@@ -107,6 +108,18 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
   const [videoFileError, setVideoFileError] = useState<string | null>(null);
 
   // --- College Info Editor States ---
+  const [savedCollegeCoverUrl, setSavedCollegeCoverUrl] = useState<string>(COLLEGE_INFO.image);
+  const [pendingCollegeCover, setPendingCollegeCover] = useState<{
+    url: string;
+    fileName?: string;
+    infoText?: string;
+  } | null>(null);
+  const [isProcessingCollegeCover, setIsProcessingCollegeCover] = useState(false);
+  const [isSavingCollegeInfo, setIsSavingCollegeInfo] = useState(false);
+  const [collegeCoverError, setCollegeCoverError] = useState<string | null>(null);
+  const [collegeCoverSuccess, setCollegeCoverSuccess] = useState<string | null>(null);
+  const [collegeCoverPreviewImgError, setCollegeCoverPreviewImgError] = useState(false);
+  const collegeCoverInputRef = useRef<HTMLInputElement>(null);
   const [newTipTitle, setNewTipTitle] = useState('');
   const [newTipDesc, setNewTipDesc] = useState('');
   const [newCustomSecTitle, setNewCustomSecTitle] = useState('');
@@ -227,7 +240,10 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
     if (activeTab === 'college_sections') {
       void DataSyncService.loadCollection('college_info', { forceManifestCheck: true });
       void DataSyncService.loadCollection('subjects_data', { forceManifestCheck: true });
-      const unsubCollege = FirebaseService.subscribeCollegeInfo((data) => setCollegeInfo(data));
+      const unsubCollege = FirebaseService.subscribeCollegeInfo((data) => {
+        setCollegeInfo(data);
+        setSavedCollegeCoverUrl(data.image || COLLEGE_INFO.image);
+      });
       const unsubSubj = FirebaseService.subscribeSubjects((data) => setSubjects(data));
       return () => {
         unsubCollege();
@@ -491,13 +507,125 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
     }
   };
 
+  // --- College Cover Upload & Save Helpers ---
+  const handleSelectCollegeCoverFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setCollegeCoverError(null);
+    setCollegeCoverSuccess(null);
+    setCollegeCoverPreviewImgError(false);
+    setIsProcessingCollegeCover(true);
+
+    try {
+      const processed = await processCoverImageFile(file);
+      setPendingCollegeCover({
+        url: processed.dataUrl,
+        fileName: file.name,
+        infoText: `${processed.width}×${processed.height} • ${formatBytesLabel(Math.round((processed.compressedLength * 3) / 4))}`,
+      });
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error && err.message
+          ? err.message
+          : 'تعذر معالجة الصورة المختارة. تم الإبقاء على صورة الغلاف السابقة.';
+      setCollegeCoverError(msg);
+      showToast(msg);
+    } finally {
+      setIsProcessingCollegeCover(false);
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
+
+  const handleCancelPendingCollegeCover = () => {
+    setPendingCollegeCover(null);
+    setCollegeCoverError(null);
+    setCollegeCoverSuccess(null);
+    setCollegeCoverPreviewImgError(false);
+    setCollegeInfo((prev) => ({ ...prev, image: savedCollegeCoverUrl }));
+    if (collegeCoverInputRef.current) {
+      collegeCoverInputRef.current.value = '';
+    }
+  };
+
+  const handleSaveCollegeCoverOnly = async () => {
+    const candidateImage = (pendingCollegeCover?.url ?? collegeInfo.image ?? '').trim();
+    const validation = validateCollegeImageUrlValue(candidateImage);
+    if (validation.valid === false) {
+      setCollegeCoverError(validation.error);
+      setCollegeCoverSuccess(null);
+      showToast(validation.error);
+      return;
+    }
+
+    setIsSavingCollegeInfo(true);
+    setCollegeCoverError(null);
+    setCollegeCoverSuccess(null);
+
+    try {
+      const updatedPayload: CollegeInfoData = {
+        ...collegeInfo,
+        image: validation.normalized,
+      };
+      await FirebaseService.updateCollegeInfo(updatedPayload);
+      setSavedCollegeCoverUrl(validation.normalized);
+      setCollegeInfo(updatedPayload);
+      setPendingCollegeCover(null);
+      setCollegeCoverPreviewImgError(false);
+      setCollegeCoverSuccess('تم حفظ ونشر صورة الغلاف بنجاح! سيتم عرضها فوراً في قسم معلومات الكلية.');
+      showToast('تم رفع وحفظ صورة الغلاف بنجاح!');
+    } catch (err: unknown) {
+      const errMsg = mapFirestoreErrorToArabic(
+        err,
+        'تعذر حفظ صورة الغلاف في السحابة. تم الاحتفاظ بالصورة السابقة دون تغيير.'
+      );
+      setCollegeCoverError(errMsg);
+      setCollegeCoverSuccess(null);
+      showToast(errMsg);
+    } finally {
+      setIsSavingCollegeInfo(false);
+    }
+  };
+
   // --- Save College Section ---
   const handleSaveCollegeInfo = async () => {
+    const candidateImage = (pendingCollegeCover?.url ?? collegeInfo.image ?? '').trim();
+    const validation = validateCollegeImageUrlValue(candidateImage);
+    if (validation.valid === false) {
+      setCollegeCoverError(validation.error);
+      setCollegeCoverSuccess(null);
+      showToast(validation.error);
+      return;
+    }
+
+    setIsSavingCollegeInfo(true);
+    setCollegeCoverError(null);
+    setCollegeCoverSuccess(null);
+
     try {
-      await FirebaseService.updateCollegeInfo(collegeInfo);
+      const updatedPayload: CollegeInfoData = {
+        ...collegeInfo,
+        image: validation.normalized,
+      };
+      await FirebaseService.updateCollegeInfo(updatedPayload);
+      setSavedCollegeCoverUrl(validation.normalized);
+      setCollegeInfo(updatedPayload);
+      setPendingCollegeCover(null);
+      setCollegeCoverPreviewImgError(false);
+      setCollegeCoverSuccess('تم حفظ كافة بيانات وصورة غلاف الكلية بنجاح!');
       showToast('تم تحديث قسم الكلية والمواد الأكاديمية بنجاح!');
-    } catch (e) {
-      showToast('حدث خطأ أثناء حفظ بيانات الكلية');
+    } catch (err: unknown) {
+      const errMsg = mapFirestoreErrorToArabic(
+        err,
+        'حدث خطأ أثناء حفظ بيانات الكلية. تم الاحتفاظ بالبيانات والصورة السابقة.'
+      );
+      setCollegeCoverError(errMsg);
+      setCollegeCoverSuccess(null);
+      showToast(errMsg);
+    } finally {
+      setIsSavingCollegeInfo(false);
     }
   };
 
@@ -1695,10 +1823,15 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
 
                 <button
                   onClick={handleSaveCollegeInfo}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow flex items-center gap-1.5"
+                  disabled={isSavingCollegeInfo || isProcessingCollegeCover}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-xs font-bold shadow flex items-center gap-1.5 cursor-pointer"
                 >
-                  <Save className="w-4 h-4" />
-                  <span>حفظ نصوص الكلية</span>
+                  {isSavingCollegeInfo ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  <span>{isSavingCollegeInfo ? 'جاري الحفظ...' : 'حفظ نصوص الكلية'}</span>
                 </button>
               </div>
 
@@ -1728,31 +1861,185 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">صورة البانر الرئيسي للكلية:</label>
-                  <div className="flex gap-2">
+                {/* College Cover Image Upload, Preview & Verified Save */}
+                <div className="space-y-3 bg-white p-4 rounded-2xl border border-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <label className="block text-xs font-extrabold text-slate-800">
+                      صورة البانر / الغلاف الرئيسي للكلية:
+                    </label>
+                    {pendingCollegeCover ? (
+                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                        معاينة قبل الحفظ
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        الغلاف المنشور حالياً
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Live Cover Preview Card */}
+                  {(() => {
+                    const previewSrc = (pendingCollegeCover?.url ?? collegeInfo.image ?? '').trim();
+                    const showPreviewImg =
+                      Boolean(previewSrc) && !/^blob:/i.test(previewSrc) && !collegeCoverPreviewImgError;
+                    return (
+                      <div className="relative overflow-hidden rounded-2xl border border-slate-200 min-h-[11rem] sm:min-h-[13rem] bg-gradient-to-br from-[#071A3D] via-[#0e3268] to-[#16958E]">
+                        {showPreviewImg ? (
+                          <img
+                            key={previewSrc}
+                            src={previewSrc}
+                            alt={collegeInfo.title || 'معاينة غلاف الكلية'}
+                            onLoad={() => setCollegeCoverPreviewImgError(false)}
+                            onError={() => setCollegeCoverPreviewImgError(true)}
+                            className="w-full h-44 sm:h-52 object-cover block"
+                          />
+                        ) : (
+                          <div className="w-full h-44 sm:h-52 flex flex-col items-center justify-center text-white/80 gap-2 p-4 text-center">
+                            <ImageIcon className="w-9 h-9 text-[#BCEBFF]" />
+                            <span className="text-xs font-bold">
+                              {collegeCoverPreviewImgError
+                                ? 'تعذر تحميل معاينة الرابط المدخل — تأكد من صحة رابط الصورة أو ارفع صورة من الجهاز'
+                                : 'لا توجد صورة غلاف حالياً — سيتم عرض التدرج اللوني الافتراضي'}
+                            </span>
+                          </div>
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#071A3D]/95 via-[#071A3D]/60 to-transparent p-3 sm:p-4 text-white">
+                          <p className="text-sm font-extrabold font-tajawal truncate">
+                            {collegeInfo.title || 'معلومات عن الكلية'}
+                          </p>
+                          <p className="text-[11px] text-slate-200 truncate">
+                            {pendingCollegeCover?.infoText
+                              ? `صورة مختارة (${pendingCollegeCover.infoText})`
+                              : collegeInfo.tagline}
+                          </p>
+                        </div>
+
+                        {(isProcessingCollegeCover || isSavingCollegeInfo) && (
+                          <div className="absolute inset-0 bg-[#071A3D]/75 backdrop-blur-xs flex flex-col items-center justify-center gap-2 text-white p-4">
+                            <Loader2 className="w-7 h-7 animate-spin text-[#BCEBFF]" />
+                            <span className="text-xs font-bold">
+                              {isProcessingCollegeCover
+                                ? 'جاري قراءة وضغط الصورة لتناسب العرض السريع...'
+                                : 'جاري رفع وحفظ صورة الغلاف في السحابة...'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* URL Input + Mobile/Desktop File Picker */}
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <input
                       type="text"
-                      value={collegeInfo.image}
-                      onChange={(e) => setCollegeInfo({ ...collegeInfo, image: e.target.value })}
-                      placeholder="رابط الصورة أو اختر ملف..."
-                      className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
+                      dir="ltr"
+                      value={pendingCollegeCover ? pendingCollegeCover.url : collegeInfo.image}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCollegeCoverError(null);
+                        setCollegeCoverSuccess(null);
+                        setCollegeCoverPreviewImgError(false);
+                        setCollegeInfo({ ...collegeInfo, image: val });
+                        if (val.trim() !== savedCollegeCoverUrl.trim()) {
+                          setPendingCollegeCover({ url: val });
+                        } else {
+                          setPendingCollegeCover(null);
+                        }
+                      }}
+                      placeholder="https://... أو ارفع صورة من الهاتف / الكمبيوتر"
+                      className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none"
                     />
-                    <label className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1">
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>رفع</span>
+                    <label
+                      className={`px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 flex-shrink-0 transition-colors ${
+                        isProcessingCollegeCover || isSavingCollegeInfo
+                          ? 'opacity-60 cursor-not-allowed pointer-events-none'
+                          : 'cursor-pointer'
+                      }`}
+                    >
+                      {isProcessingCollegeCover ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isProcessingCollegeCover ? 'جاري المعالجة...' : 'اختيار صورة من الجهاز'}</span>
                       <input
+                        ref={collegeCoverInputRef}
                         type="file"
                         accept="image/*"
+                        disabled={isProcessingCollegeCover || isSavingCollegeInfo}
                         className="hidden"
-                        onChange={(e) => {
-                          if (e.target.files?.[0]) {
-                            handleFileUpload(e.target.files[0], (url) => setCollegeInfo({ ...collegeInfo, image: url }));
-                          }
-                        }}
+                        onChange={handleSelectCollegeCoverFile}
                       />
                     </label>
                   </div>
+
+                  {/* Confirm / Cancel Preview Actions */}
+                  {pendingCollegeCover && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <span className="text-[11px] font-medium text-slate-600">
+                        {pendingCollegeCover.fileName
+                          ? `الملف المختار: ${pendingCollegeCover.fileName}`
+                          : 'تم تعديل رابط الصورة — اضغط اعتماد للحفظ والنشر.'}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCancelPendingCollegeCover}
+                          disabled={isSavingCollegeInfo || isProcessingCollegeCover}
+                          className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>إلغاء واسترجاع الغلاف السابق</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveCollegeCoverOnly}
+                          disabled={isSavingCollegeInfo || isProcessingCollegeCover}
+                          className="px-4 py-1.5 rounded-xl bg-[#16958E] hover:bg-[#071A3D] text-white text-xs font-bold shadow flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingCollegeInfo ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Check className="w-3.5 h-3.5" />
+                          )}
+                          <span>{isSavingCollegeInfo ? 'جاري الحفظ...' : 'اعتماد وحفظ صورة الغلاف'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Explicit Error / Success Feedback */}
+                  {collegeCoverError && (
+                    <div
+                      role="alert"
+                      className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold flex items-start gap-2"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <p>{collegeCoverError}</p>
+                        {savedCollegeCoverUrl && (
+                          <p className="text-[11px] font-medium text-rose-700 mt-1">
+                            ملاحظة: صورة الغلاف السابقة لا تزال محفوظة وآمنة.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {collegeCoverSuccess && !collegeCoverError && (
+                    <div
+                      role="status"
+                      className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      <span>{collegeCoverSuccess}</span>
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-slate-500">
+                    يدعم الرفع المباشر من كاميرا أو معرض الهاتف والكمبيوتر (JPG, PNG, WebP, GIF) مع ضغط تلقائي ذكي لضمان سرعة التحميل وثبات الحفظ.
+                  </p>
                 </div>
 
                 <div>
